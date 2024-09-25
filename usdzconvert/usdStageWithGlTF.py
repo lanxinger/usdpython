@@ -1292,7 +1292,7 @@ class glTFConverter:
             usdSkelBlendShapeBinding.CreateBlendShapesAttr(blendShapes)
             usdSkelBlendShapeBinding.CreateBlendShapeTargetsRel().SetTargets(blendShapeTargets)
 
-            UsdSkel.BindingAPI.Apply(usdGeom.GetPrim())
+            UsdSkel.BindingAPI(usdGeom.GetPrim())
 
             strNodeIdx = str(nodeIdx)
             if strNodeIdx in self.blendShapeByNode:
@@ -1460,7 +1460,7 @@ class glTFConverter:
 
                 values = self.getInterpolatedValues(interpolation, keyTimesAcc, keyValuesAcc, getValueFromData)
                 for time, value in values.items():
-                    xformOp.Set(time = time, value = value)
+                    xformOp.Set(time = Usd.TimeCode(time), value = value)
 
 
     def processSkinnedMeshes(self):

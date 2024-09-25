@@ -1,4 +1,4 @@
-#!/usr/bin/python
+#!/usr/bin/env python3
 
 import subprocess, sys, os, argparse
 from pxr import *
@@ -49,7 +49,7 @@ def main(argumentList, outErrorList=None):
         errorData = []
         runValidators(filename, verboseOutput, errorData)
         if outErrorList is not None:
-        	outErrorList.append({ "file": filename, "errors": errorData })
+            outErrorList.append({ "file": filename, "errors": errorData })
         totalSuccess = totalSuccess and len(errorData) == 0
 
     if totalSuccess:

@@ -314,7 +314,7 @@ class Material:
         surfaceShader = UsdShade.Shader.Define(usdStage, matPath + '/surfaceShader')
         surfaceShader.CreateIdAttr('UsdPreviewSurface')
         surfaceOutput = surfaceShader.CreateOutput('surface', Sdf.ValueTypeNames.Token)
-        usdMaterial.CreateOutput('surface', Sdf.ValueTypeNames.Token).ConnectToSource(surfaceOutput)
+        UsdShade.MaterialBindingAPI(usdMaterial).CreateSurfaceOutput().ConnectToSource(surfaceOutput)
         if self.opacityThreshold is not None:
             surfaceShader.CreateInput('opacityThreshold', Sdf.ValueTypeNames.Float).Set(float(self.opacityThreshold))
         return surfaceShader
@@ -663,8 +663,7 @@ class Skeleton:
             printWarning('trying to assign Skeletal Animation before USD Skeleton has been created.')
             return
 
-        usdSkelBinding = UsdSkel.BindingAPI(self.usdSkeleton)
-        usdSkelBinding.CreateAnimationSourceRel().AddTarget(usdSkelAnim.GetPath())
+        UsdSkel.BindingAPI(self.usdSkeleton).CreateAnimationSourceRel().AddTarget(usdSkelAnim.GetPath())
         self.usdSkelAnim = usdSkelAnim
 
 
@@ -763,8 +762,7 @@ class BlendShape:
 
         self.usdSkeleton = UsdSkel.Skeleton.Define(usdStage, sdfPath + '/Skeleton')
 
-        usdSkelBlendShapeBinding = UsdSkel.BindingAPI(usdGeom)
-        usdSkelBlendShapeBinding.CreateSkeletonRel().AddTarget("Skeleton")
+        UsdSkel.BindingAPI(usdGeom).CreateSkeletonRel().AddTarget("Skeleton")
 
         return usdGeom
 
@@ -778,8 +776,7 @@ class BlendShape:
             printWarning('trying to assign Skeletal Animation before USD Skeleton has been created.')
             return
 
-        usdSkelBinding = UsdSkel.BindingAPI(self.usdSkeleton)
-        usdSkelBinding.CreateAnimationSourceRel().AddTarget(usdSkelAnim.GetPath())
+        UsdSkel.BindingAPI(self.usdSkeleton).CreateAnimationSourceRel().AddTarget(usdSkelAnim.GetPath())
         self.usdSkelAnim = usdSkelAnim
 
 

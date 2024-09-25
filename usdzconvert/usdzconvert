@@ -1,171 +1,177 @@
-#!/usr/bin/env python3.7
-import os.path
-from os import chdir
+#!/usr/bin/env python3
+
 import sys
 import importlib
 import tempfile
-from shutil import rmtree
 import zipfile
+from pathlib import Path
+from shutil import rmtree
+from typing import List, Dict, Any
 
-usdLibLoaded = True
-kConvertErrorReturnValue = 2
-
-
-if sys.version_info.major != 3:
-    print('  \033[93mWarning: It is recommended to use Python 3. Current version is ' + str(sys.version_info.major) + '.\033[0m')
+import os.path
+from os import chdir
 
 try:
     from pxr import *
     import usdUtils
 except ImportError:
-    print('  \033[91mError: failed to import pxr module. Please add path to USD Python bindings to your PYTHONPATH\033[0m')
+    print(
+        '  \033[91mError: failed to import pxr module. Please add path to USD Python bindings to your PYTHONPATH\033[0m'
+    )
     usdLibLoaded = False
+else:
+    usdLibLoaded = True
 
 __all__ = ['convert']
 
+kConvertErrorReturnValue = 2
+
 
 class USDParameters:
-    version = 0.66
-    materialsPath = '/Materials'
+    version: float = 0.66
+    materialsPath: str = '/Materials'
 
-    def __init__(self, usdStage, verbose, url, creator, copyright, assetPath):
+    def __init__(
+        self,
+        usdStage: Usd.Stage,
+        verbose: bool,
+        url: str,
+        creator: str,
+        copyright: str,
+        assetPath: str,
+    ) -> None:
         self.usdStage = usdStage
         self.verbose = verbose
         self.url = url
         self.creator = creator
         self.copyright = copyright
-        self.usdMaterials = {} # store materials by path
-        self.usdMaterialsByName = {} # store materials by name
-        self.defaultMaterial = None
-        self.assetName = ''
+        self.usdMaterials: Dict[str, UsdShade.Material] = {}
+        self.usdMaterialsByName: Dict[str, UsdShade.Material] = {}
+        self.defaultMaterial: UsdShade.Material | None = None
+        self.assetName: str = ''
         self.asset = usdUtils.Asset(assetPath, usdStage)
 
 
-# parameters from command line
 class ParserOut:
-    def __init__(self):
-        self.inFilePath = ''
-        self.outFilePath = ''
-        self.argumentFile = ''
-        self.materials = []
-        self.verbose = False
-        self.copyTextures = False
-        self.iOS12 = False
-        self.paths = None
-        self.url = ''
-        self.creator = ''
-        self.copyright = ''
-        self.metersPerUnit = 0 # set by user
-        self.preferredIblVersion = -1
-        self.loop = False
-        self.noloop = False
-        self.useObjMtl = False
+    def __init__(self) -> None:
+        self.inFilePath: str = ''
+        self.outFilePath: str = ''
+        self.argumentFile: str = ''
+        self.materials: List[usdUtils.Material] = []
+        self.verbose: bool = False
+        self.copyTextures: bool = False
+        self.iOS12: bool = False
+        self.paths: List[str] | None = None
+        self.url: str = ''
+        self.creator: str = ''
+        self.copyright: str = ''
+        self.metersPerUnit: float = 0.0
+        self.preferredIblVersion: int = -1
+        self.loop: bool = False
+        self.noloop: bool = False
+        self.useObjMtl: bool = False
         material = usdUtils.Material('')
         self.materials.append(material)
 
 
-# in/out parameters for converters
 class OpenParameters:
-    def __init__(self):
-        self.copyTextures = False
-        self.searchPaths = None
-        self.verbose = False
-        self.metersPerUnit = 0 # set by converters
+    def __init__(self) -> None:
+        self.copyTextures: bool = False
+        self.searchPaths: List[str] | None = None
+        self.verbose: bool = False
+        self.metersPerUnit: float = 0.0
 
 
 class Parser:
-    def __init__(self):
+    def __init__(self) -> None:
         self.out = ParserOut()
-        self.arguments = []
-        self.argumentIndex = 0
-        self.texCoordSet = 'st'
-        self.wrapS = usdUtils.WrapMode.useMetadata
-        self.wrapT = usdUtils.WrapMode.useMetadata
+        self.arguments: List[str] = []
+        self.argumentIndex: int = 0
+        self.texCoordSet: str = 'st'
+        self.wrapS: str = usdUtils.WrapMode.useMetadata
+        self.wrapT: str = usdUtils.WrapMode.useMetadata
 
+    def printConvertNameAndVersion(self) -> None:
+        print(f'usdzconvert {USDParameters.version}')
 
-    def printConvertNameAndVersion(self):
-        print('usdzconvert ' +  str(USDParameters.version))
-
-
-
-    def printUsage(self):
+    def printUsage(self) -> None:
         self.printConvertNameAndVersion()
-        print('usage: usdzconvert inputFile [outputFile]\n\
-                   [-h] [-version] [-f file] [-v]\n\
-                   [-path path[+path2[...]]]\n\
-                   [-url url]\n\
-                   [-copyright copyright]\n\
-                   [-copytextures]\n\
-                   [-metersPerUnit value]\n\
-                   [-useObjMtl]\n\
-                   [-preferredIblVersion value]\n\
-                   [-loop]\n\
-                   [-no-loop]\n\
-                   [-iOS12]\n\
-                   [-m materialName]\n\
-                   [-texCoordSet name]\n\
-                   [-wrapS mode]\n\
-                   [-wrapT mode]\n\
-                   [-diffuseColor           r,g,b]\n\
-                   [-diffuseColor           <file> fr,fg,fb]\n\
-                   [-normal                 x,y,z]\n\
-                   [-normal                 <file> fx,fy,fz]\n\
-                   [-emissiveColor          r,g,b]\n\
-                   [-emissiveColor          <file> fr,fb,fg]\n\
-                   [-metallic               c]\n\
-                   [-metallic               ch <file> fc]\n\
-                   [-roughness              c]\n\
-                   [-roughness              ch <file> fc]\n\
-                   [-occlusion              c]\n\
-                   [-occlusion              ch <file> fc]\n\
-                   [-opacity                c]\n\
-                   [-opacity                ch <file> fc]\n\
-                   [-clearcoat              c]\n\
-                   [-clearcoat              ch <file> fc]\n\
-                   [-clearcoatRoughness     c]\n\
-                   [-clearcoatRoughness     ch <file> fc]\n')
+        usage_text = (
+            'usage: usdzconvert inputFile [outputFile]\n'
+            '       [-h] [-version] [-f file] [-v]\n'
+            '       [-path path[+path2[...]]]\n'
+            '       [-url url]\n'
+            '       [-copyright copyright]\n'
+            '       [-copytextures]\n'
+            '       [-metersPerUnit value]\n'
+            '       [-useObjMtl]\n'
+            '       [-preferredIblVersion value]\n'
+            '       [-loop]\n'
+            '       [-no-loop]\n'
+            '       [-iOS12]\n'
+            '       [-m materialName]\n'
+            '       [-texCoordSet name]\n'
+            '       [-wrapS mode]\n'
+            '       [-wrapT mode]\n'
+            '       [-diffuseColor           r,g,b]\n'
+            '       [-diffuseColor           <file> fr,fg,fb]\n'
+            '       [-normal                 x,y,z]\n'
+            '       [-normal                 <file> fx,fy,fz]\n'
+            '       [-emissiveColor          r,g,b]\n'
+            '       [-emissiveColor          <file> fr,fb,fg]\n'
+            '       [-metallic               c]\n'
+            '       [-metallic               ch <file> fc]\n'
+            '       [-roughness              c]\n'
+            '       [-roughness              ch <file> fc]\n'
+            '       [-occlusion              c]\n'
+            '       [-occlusion              ch <file> fc]\n'
+            '       [-opacity                c]\n'
+            '       [-opacity                ch <file> fc]\n'
+            '       [-clearcoat              c]\n'
+            '       [-clearcoat              ch <file> fc]\n'
+            '       [-clearcoatRoughness     c]\n'
+            '       [-clearcoatRoughness     ch <file> fc]\n'
+        )
+        print(usage_text)
 
-
-    def printHelpAndExit(self):
+    def printHelpAndExit(self) -> None:
         self.printUsage()
-        with open(os.path.join(sys.path[0], 'help.txt'), 'r') as file:
-            print (file.read())
-            file.close()
+        help_file_path = Path(sys.path[0]) / 'help.txt'
+        try:
+            with open(help_file_path, 'r') as file:
+                print(file.read())
+        except FileNotFoundError:
+            print(f'Help file not found at {help_file_path}')
         raise usdUtils.ConvertExit()
 
-
-    def printVersionAndExit(self):
+    def printVersionAndExit(self) -> None:
         print(USDParameters.version)
         raise usdUtils.ConvertExit()
 
-
-    def printErrorUsageAndExit(self, message):
+    def printErrorUsageAndExit(self, message: str) -> None:
         self.printConvertNameAndVersion()
         usdUtils.printError(message)
         print('For more information, run "usdzconvert -h"')
         raise usdUtils.ConvertError()
 
-
-    def loadArgumentsFromFile(self, filename):
+    def loadArgumentsFromFile(self, filename: str) -> None:
         self.out.argumentFile = ''
-        if os.path.isfile(filename):
-            self.out.argumentFile = filename
-        elif self.out.inFilePath:
-            filename = os.path.dirname(self.out.inFilePath) + '/' + filename
-            if os.path.isfile(filename):
-                self.out.argumentFile = filename
-        if self.out.argumentFile == '':
-            self.printErrorUsageAndExit("failed to load argument file:" + filename)
+        file_path = Path(filename)
+        if not file_path.is_absolute() and self.out.inFilePath:
+            file_path = Path(os.path.dirname(self.out.inFilePath)) / file_path
 
-        with open(self.out.argumentFile) as file:
+        if file_path.is_file():
+            self.out.argumentFile = str(file_path)
+        else:
+            self.printErrorUsageAndExit(f"failed to load argument file: {filename}")
+
+        with open(file_path, 'r') as file:
             for line in file:
                 line = line.strip()
-                if '' == line:
+                if not line:
                     continue
 
-                line = line.replace('\t', ' ')
-                line = line.replace(',', ' ')
-                # arguments, like file names, can be with spaces in quotes
+                line = line.replace('\t', ' ').replace(',', ' ')
                 quotes = line.split('"')
                 if len(quotes) > 1:
                     for i in range(1, len(quotes), 2):
@@ -178,26 +184,28 @@ class Parser:
                     if argument:
                         self.arguments.append(argument)
 
-
-    def getParameters(self, count, argument):
+    def getParameters(self, count: int, argument: str) -> Any:
         if self.argumentIndex + count >= len(self.arguments):
-            self.printErrorUsageAndExit('argument ' + argument + ' needs more parameters')
+            self.printErrorUsageAndExit(f'argument {argument} needs more parameters')
 
         self.argumentIndex += count
         if count == 1:
             parameter = self.arguments[self.argumentIndex]
-            if parameter[0] == '-' and not isFloat(parameter):
-                self.printErrorUsageAndExit('unexpected parameter ' + parameter + ' for argument ' + argument)
+            if parameter.startswith('-') and not isFloat(parameter):
+                self.printErrorUsageAndExit(
+                    f'unexpected parameter {parameter} for argument {argument}'
+                )
             return self.arguments[self.argumentIndex]
         else:
-            parameters = self.arguments[(self.argumentIndex - count + 1):(self.argumentIndex + 1)]
+            parameters = self.arguments[(self.argumentIndex - count + 1) : (self.argumentIndex + 1)]
             for parameter in parameters:
-                if parameter[0] == '-' and not isFloat(parameter):
-                    self.printErrorUsageAndExit('unexpected parameter ' + parameter + ' for argument ' + argument)
+                if parameter.startswith('-') and not isFloat(parameter):
+                    self.printErrorUsageAndExit(
+                        f'unexpected parameter {parameter} for argument {argument}'
+                    )
             return parameters
 
-
-    def isNextArgumentsAreFloats(self, count):
+    def isNextArgumentsAreFloats(self, count: int) -> bool:
         if self.argumentIndex + count >= len(self.arguments):
             return False
         for i in range(count):
@@ -206,14 +214,12 @@ class Parser:
                 return False
         return True
 
-
-    def processInputArgument(self, argument):
+    def processInputArgument(self, argument: str) -> int:
         Ok = 0
         Error = 1
         inputIdx = -1
-        for i in range(len(usdUtils.Input.names)):
-            inputName = usdUtils.Input.names[i]
-            if '-' + inputName == argument:
+        for i, inputName in enumerate(usdUtils.Input.names):
+            if f'-{inputName}' == argument:
                 inputIdx = i
                 break
         if inputIdx == -1:
@@ -231,52 +237,50 @@ class Parser:
         channels = ''
         filename = ''
         parameter = self.getParameters(1, argument)
-        if 'r' == parameter or 'g' == parameter or 'b' == parameter or 'a' == parameter or 'rgb' == parameter:
+        if parameter in {'r', 'g', 'b', 'a', 'rgb'}:
             channels = parameter
             filename = self.getParameters(1, argument)
         else:
             filename = parameter
 
-        if channelsCount != 1 and channels != '' or channels == 'rgb':
-            usdUtils.printWarning('invalid channel ' + channels + ' for argument ' + argument)
+        if (channelsCount != 1 and channels) or channels == 'rgb':
+            usdUtils.printWarning(f'invalid channel {channels} for argument {argument}')
             channels = ''
-
 
         fallback = None
         if self.isNextArgumentsAreFloats(channelsCount):
             fallback = self.getParameters(channelsCount, argument)
 
-        if channels == '':
+        if not channels:
             index = usdUtils.Input.names.index(inputName)
             channels = usdUtils.Input.channels[index]
 
-        self.out.materials[-1].inputs[inputName] = usdUtils.Map(channels, filename, fallback, self.texCoordSet, self.wrapS, self.wrapT)
+        self.out.materials[-1].inputs[inputName] = usdUtils.Map(
+            channels, filename, fallback, self.texCoordSet, self.wrapS, self.wrapT
+        )
         return Ok
 
-
-    def processPath(self, pathLine):
+    def processPath(self, pathLine: str) -> List[str]:
         paths = pathLine.split('+')
         outPath = []
         for path in paths:
             if path:
-                if os.path.isdir(path):
+                if Path(path).is_dir():
                     outPath.append(path)
                 else:
-                    usdUtils.printWarning("Folder '" + path + "' does not exist. Ignored.")
+                    usdUtils.printWarning(f"Folder '{path}' does not exist. Ignored.")
         return outPath
 
-
-    def parse(self, arguments):
+    def parse(self, arguments: List[str]) -> ParserOut:
         self.arguments = []
         for arg in arguments:
-            if arg.find(',') != -1:
-                newargs = filter(None, arg.replace(',',' ').split(' '))
-                for newarg in newargs:
-                    self.arguments.append(newarg)
+            if ',' in arg:
+                newargs = list(filter(None, arg.replace(',', ' ').split(' ')))
+                self.arguments.extend(newargs)
             else:
                 self.arguments.append(arg)
-        
-        if len(arguments) == 0:
+
+        if not arguments:
             self.printUsage()
             print('For more information, run "usdzconvert -h"')
             raise usdUtils.ConvertExit()
@@ -284,78 +288,93 @@ class Parser:
         while self.argumentIndex < len(self.arguments):
             argument = self.arguments[self.argumentIndex]
             if not argument:
+                self.argumentIndex += 1
                 continue
-            if '-' == argument[0]:
+            if argument.startswith('-'):
                 # parse optional arguments
-                if '-v' == argument:
+                if argument == '-v':
                     self.out.verbose = True
-                elif '-copytextures' == argument:
+                elif argument == '-copytextures':
                     self.out.copyTextures = True
-                elif '-iOS12' == argument or '-ios12' == argument:
+                elif argument.lower() == '-ios12':
                     self.out.iOS12 = True
-                elif '-path' == argument:
+                elif argument == '-path':
                     self.out.paths = self.processPath(self.getParameters(1, argument))
-                elif '-copyright' == argument:
+                elif argument == '-copyright':
                     self.out.copyright = self.getParameters(1, argument)
-                elif '-url' == argument:
+                elif argument == '-url':
                     self.out.url = self.getParameters(1, argument)
-                elif '-creator' == argument:
+                elif argument == '-creator':
                     self.out.creator = self.getParameters(1, argument)
-                elif '-metersPerUnit' == argument:
+                elif argument == '-metersPerUnit':
                     metersPerUnit = self.getParameters(1, argument)
                     if not isFloat(metersPerUnit) or float(metersPerUnit) <= 0:
-                        self.printErrorUsageAndExit('expected positive float value for argument ' + argument)
+                        self.printErrorUsageAndExit(
+                            f'expected positive float value for argument {argument}'
+                        )
                     self.out.metersPerUnit = float(metersPerUnit)
-                elif '-preferredIblVersion' == argument or '--preferredIblVersion' == argument or '--preferrediblversion' == argument:
+                elif argument in {'-preferredIblVersion', '--preferredIblVersion', '--preferrediblversion'}:
                     preferredIblVersion = self.getParameters(1, argument)
-                    if not isFloat(preferredIblVersion) or float(preferredIblVersion) < 0 or 2 < float(preferredIblVersion):
-                        self.printErrorUsageAndExit('expected positive integer value [0, 1, 2] for argument ' + argument)
+                    if (
+                        not isFloat(preferredIblVersion)
+                        or float(preferredIblVersion) < 0
+                        or float(preferredIblVersion) > 2
+                    ):
+                        self.printErrorUsageAndExit(
+                            f'expected positive integer value [0, 1, 2] for argument {argument}'
+                        )
                     self.out.preferredIblVersion = int(float(preferredIblVersion))
-                elif '-m' == argument:
+                elif argument == '-m':
                     name = self.getParameters(1, argument)
                     material = usdUtils.Material(name)
                     self.out.materials.append(material)
-                    self.texCoordSet = 'st' # drop to default
-                elif '-texCoordSet' == argument:
+                    self.texCoordSet = 'st'  # reset to default
+                elif argument == '-texCoordSet':
                     self.texCoordSet = self.getParameters(1, argument)
-                elif '-wraps' == argument.lower():
-                    self.wrapS = self.getParameters(1, argument)
-                    if not usdUtils.isWrapModeCorrect(self.wrapS):
-                        self.printErrorUsageAndExit('wrap mode \'' + self.wrapS + '\' is incorrect for ' + argument)
-                elif '-wrapt' == argument.lower():
-                    self.wrapT = self.getParameters(1, argument)
-                    if not usdUtils.isWrapModeCorrect(self.wrapT):
-                        self.printErrorUsageAndExit('wrap mode \'' + self.wrapT + '\' is incorrect for ' + argument)
-                elif '-loop' == argument or '--loop' == argument:
+                elif argument.lower() == '-wraps':
+                    wrap_mode = self.getParameters(1, argument)
+                    if not usdUtils.isWrapModeCorrect(wrap_mode):
+                        self.printErrorUsageAndExit(
+                            f"wrap mode '{wrap_mode}' is incorrect for {argument}"
+                        )
+                    self.wrapS = wrap_mode
+                elif argument.lower() == '-wrapt':
+                    wrap_mode = self.getParameters(1, argument)
+                    if not usdUtils.isWrapModeCorrect(wrap_mode):
+                        self.printErrorUsageAndExit(
+                            f"wrap mode '{wrap_mode}' is incorrect for {argument}"
+                        )
+                    self.wrapT = wrap_mode
+                elif argument in {'-loop', '--loop'}:
                     self.out.loop = True
-                elif '-no-loop' == argument or '--no-loop' == argument:
+                elif argument in {'-no-loop', '--no-loop'}:
                     self.out.noloop = True
-                elif '-useObjMtl' == argument:
+                elif argument == '-useObjMtl':
                     self.out.useObjMtl = True
-                elif '-h' == argument or '--help' == argument:
+                elif argument in {'-h', '--help'}:
                     self.printHelpAndExit()
-                elif '-version' == argument or '--version' == argument:
+                elif argument in {'-version', '--version'}:
                     self.printVersionAndExit()
-                elif '-f' == argument:
+                elif argument == '-f':
                     self.loadArgumentsFromFile(self.getParameters(1, argument))
                 else:
                     errorValue = self.processInputArgument(argument)
                     if errorValue:
-                        self.printErrorUsageAndExit('unknown argument ' + argument)
+                        self.printErrorUsageAndExit(f'unknown argument {argument}')
             else:
                 # parse input/output filenames
-                if self.out.inFilePath == '':
+                if not self.out.inFilePath:
                     self.out.inFilePath = argument
-                elif self.out.outFilePath == '':
+                elif not self.out.outFilePath:
                     self.out.outFilePath = argument
                 else:
-                    print('Input file: ' + self.out.inFilePath)
-                    print('Output file:' + self.out.outFilePath)
-                    self.printErrorUsageAndExit('unknown argument ' + argument)
+                    print(f'Input file: {self.out.inFilePath}')
+                    print(f'Output file: {self.out.outFilePath}')
+                    self.printErrorUsageAndExit(f'unknown argument {argument}')
 
             self.argumentIndex += 1
 
-        if self.out.inFilePath == '':
+        if not self.out.inFilePath:
             self.printErrorUsageAndExit('too few arguments')
 
         if self.out.loop and self.out.noloop:
@@ -364,24 +383,24 @@ class Parser:
         return self.out
 
 
-def isFloat(value):
+def isFloat(value: str) -> bool:
     try:
-        val = float(value)
+        float(value)
         return True
     except ValueError:
         return False
 
 
-def createMaterial(params, materialName):
-    matPath = params.materialsPath + '/' + materialName
+def createMaterial(params: USDParameters, materialName: str) -> UsdShade.Material:
+    matPath = f'{params.materialsPath}/{materialName}'
 
     if params.verbose:
-        print('  creating material at path: ' + matPath)
+        print(f'  creating material at path: {matPath}')
     if not Sdf.Path.IsValidIdentifier(materialName):
         usdUtils.printError("failed to create material by specified path.")
         raise usdUtils.ConvertError()
 
-    surfaceShader = UsdShade.Shader.Define(params.usdStage, matPath + '/Shader')
+    surfaceShader = UsdShade.Shader.Define(params.usdStage, f'{matPath}/Shader')
     surfaceShader.CreateIdAttr('UsdPreviewSurface')
     surfaceOutput = surfaceShader.CreateOutput('surface', Sdf.ValueTypeNames.Token)
     usdMaterial = UsdShade.Material.Define(params.usdStage, matPath)
@@ -392,59 +411,61 @@ def createMaterial(params, materialName):
     return usdMaterial
 
 
-def getAllUsdMaterials(params, usdParentPrim):
+def getAllUsdMaterials(params: USDParameters, usdParentPrim: Usd.Prim) -> None:
     for usdPrim in usdParentPrim.GetChildren():
         if usdPrim.IsA(UsdGeom.Mesh) or usdPrim.IsA(UsdGeom.Subset):
             bindAPI = UsdShade.MaterialBindingAPI(usdPrim)
-            if bindAPI != None:
+            if bindAPI:
                 usdShadeMaterial = None
                 directBinding = bindAPI.GetDirectBinding()
                 matPath = str(directBinding.GetMaterialPath())
 
-                if matPath != '':
+                if matPath:
                     if params.usdStage.GetObjectAtPath(matPath).IsValid():
                         usdShadeMaterial = directBinding.GetMaterial()
                     elif params.verbose:
-                        usdUtils.printWarning("Mesh has material '" + matPath + "' which is not exist.")
+                        usdUtils.printWarning(
+                            f"Mesh has material '{matPath}' which does not exist."
+                        )
 
-                if usdShadeMaterial != None and matPath not in params.usdMaterials:
+                if usdShadeMaterial and matPath not in params.usdMaterials:
                     params.usdMaterials[matPath] = usdShadeMaterial
-                    materialNameSplitted = matPath.split('/')
-                    materialName = materialNameSplitted[len(materialNameSplitted) - 1]
+                    materialName = Path(matPath).name
                     params.usdMaterialsByName[materialName] = usdShadeMaterial
 
         getAllUsdMaterials(params, usdPrim)
 
 
-def addDefaultMaterialToGeometries(params, usdParentPrim):
+def addDefaultMaterialToGeometries(params: USDParameters, usdParentPrim: Usd.Prim) -> None:
     for usdPrim in usdParentPrim.GetChildren():
         if usdPrim.IsA(UsdGeom.Mesh) or usdPrim.IsA(UsdGeom.Subset):
             bindAPI = UsdShade.MaterialBindingAPI(usdPrim)
-            if bindAPI != None:
+            if bindAPI:
                 usdShadeMaterial = None
                 directBinding = bindAPI.GetDirectBinding()
                 matPath = str(directBinding.GetMaterialPath())
 
-                if matPath != '':
+                if matPath:
                     usdShadeMaterial = directBinding.GetMaterial()
 
-                if usdShadeMaterial == None:
-                    if params.defaultMaterial == None:
+                if not usdShadeMaterial:
+                    if not params.defaultMaterial:
                         params.defaultMaterial = createMaterial(params, 'defaultMaterial')
-                    matPath = params.materialsPath + '/defaultMaterial'
+                    matPath = f'{params.materialsPath}/defaultMaterial'
                     usdShadeMaterial = params.defaultMaterial
                     bindAPI.Bind(usdShadeMaterial)
 
                 if matPath not in params.usdMaterials:
                     params.usdMaterials[matPath] = usdShadeMaterial
-                    materialNameSplitted = matPath.split('/')
-                    materialName = materialNameSplitted[len(materialNameSplitted) - 1]
+                    materialName = Path(matPath).name
                     params.usdMaterialsByName[materialName] = usdShadeMaterial
 
         addDefaultMaterialToGeometries(params, usdPrim)
 
 
-def findUsdMaterialRecursively(params, usdParentPrim, name, byPath):
+def findUsdMaterialRecursively(
+    params: USDParameters, usdParentPrim: Usd.Prim, name: str, byPath: bool
+) -> UsdShade.Material | None:
     for usdPrim in usdParentPrim.GetChildren():
         if usdPrim.IsA(UsdShade.Material):
             path = usdPrim.GetPath()
@@ -452,183 +473,186 @@ def findUsdMaterialRecursively(params, usdParentPrim, name, byPath):
                 if path == name:
                     return UsdShade.Material(usdPrim)
             else:
-                matName = os.path.basename(str(path))
+                matName = Path(str(path)).name
                 if matName == name:
                     return UsdShade.Material(usdPrim)
         usdMaterial = findUsdMaterialRecursively(params, usdPrim, name, byPath)
-        if usdMaterial is not None:
+        if usdMaterial:
             return usdMaterial
     return None
 
 
-def findUsdMaterial(params, name):
-    if not name or len(name) < 1:
+def findUsdMaterial(params: USDParameters, name: str) -> UsdShade.Material | None:
+    if not name:
         return None
 
-    # first try to find by material path
+    # First try to find by material path
     if name in params.usdMaterials:
         return params.usdMaterials[name]
 
-    # try to find by material name 
+    # Try to find by material name
     materialName = usdUtils.makeValidIdentifier(name)
     if materialName in params.usdMaterialsByName:
         return params.usdMaterialsByName[materialName]
 
-    # try other options
-    testMaterialName = '/Materials/' + materialName
+    # Try other options
+    testMaterialName = f'/Materials/{materialName}'
     if testMaterialName in params.usdMaterials:
         return params.usdMaterials[testMaterialName]
 
-    testMaterialName = '/' + materialName
+    testMaterialName = f'/{materialName}'
     if testMaterialName in params.usdMaterials:
         return params.usdMaterials[testMaterialName]
 
-    byPath = '/' == name[0]
+    byPath = name.startswith('/')
     return findUsdMaterialRecursively(params, params.usdStage.GetPseudoRoot(), name, byPath)
 
 
-def copyTexturesFromStageToFolder(params, srcPath, folder):
+def copyTexturesFromStageToFolder(params: USDParameters, srcPath: str, folder: str) -> None:
     copiedFiles = {}
-    srcFolder = os.path.dirname(srcPath)
+    srcFolder = Path(srcPath).parent
+    folderPath = Path(folder)
+
     for path, usdMaterial in params.usdMaterials.items():
         for childShader in usdMaterial.GetPrim().GetChildren():
             idAttribute = childShader.GetAttribute('info:id')
-            if idAttribute is None:
+            if not idAttribute:
                 continue
             id = idAttribute.Get()
             if id != 'UsdUVTexture':
                 continue
             fileAttribute = childShader.GetAttribute('inputs:file')
-            if fileAttribute is None or fileAttribute.Get() is None:
+            if not fileAttribute or not fileAttribute.Get():
                 continue
             filename = fileAttribute.Get().path
-            if not filename:
+            if not filename or filename in copiedFiles:
                 continue
-            if filename in copiedFiles:
-                continue
-            if srcFolder and filename[0] != '/':
-                filePath = srcFolder + '/' + filename
-            else:
-                filePath = filename
-            usdUtils.copy(filePath, folder + '/' + filename, params.verbose)
-            copiedFiles[filename] = filename
+            filePath = srcFolder / filename if not Path(filename).is_absolute() else Path(filename)
+            if filePath.is_file():
+                usdUtils.copy(str(filePath), str(folderPath / filename), params.verbose)
+                copiedFiles[filename] = filename
 
 
-def copyMaterialTextures(params, material, srcPath, dstPath, folder):
-    srcFolder = os.path.dirname(srcPath)
-    dstFolder = os.path.dirname(dstPath)
+def copyMaterialTextures(
+    params: USDParameters, material: usdUtils.Material, srcPath: str, dstPath: str, folder: str
+) -> None:
+    srcFolder = Path(srcPath).parent
+    dstFolder = Path(dstPath).parent if dstPath else None
+    folderPath = Path(folder)
+
     for inputName, input in material.inputs.items():
         if not isinstance(input, usdUtils.Map):
             continue
         if not input.file:
             continue
 
-        if srcFolder:
-            if os.path.isfile(srcFolder + '/' + input.file):
-                usdUtils.copy(srcFolder + '/' + input.file, folder + '/' + input.file, params.verbose)
-                continue
+        file_obj = Path(input.file)
+        copied = False
 
-        if dstFolder and dstFolder != srcFolder:
-            if os.path.isfile(dstFolder + '/' + input.file):
-                usdUtils.copy(dstFolder + '/' + input.file, folder + '/' + input.file, params.verbose)
-                continue
+        if srcFolder and (srcFolder / file_obj).is_file():
+            usdUtils.copy(str(srcFolder / file_obj), str(folderPath / file_obj), params.verbose)
+            copied = True
+        elif dstFolder and (dstFolder / file_obj).is_file():
+            usdUtils.copy(str(dstFolder / file_obj), str(folderPath / file_obj), params.verbose)
+            copied = True
+        elif file_obj.is_file():
+            if srcFolder and str(srcFolder) in str(file_obj):
+                relative_path = file_obj.relative_to(srcFolder)
+                usdUtils.copy(str(srcFolder / relative_path), str(folderPath / relative_path), params.verbose)
+                input.file = str(relative_path)
+                copied = True
+            elif dstFolder and str(dstFolder) in str(file_obj):
+                relative_path = file_obj.relative_to(dstFolder)
+                usdUtils.copy(str(dstFolder / relative_path), str(folderPath / relative_path), params.verbose)
+                input.file = str(relative_path)
+                copied = True
+            else:
+                basename = f'textures/{file_obj.name}'
+                usdUtils.copy(str(file_obj), str(folderPath / basename), params.verbose)
+                input.file = basename
+                copied = True
 
-        if os.path.isfile(input.file):
-            if srcFolder and len(srcFolder) < len(input.file) and srcFolder + '/' == input.file[0:(len(srcFolder)+1)]:
-                input.file = input.file[(len(srcFolder)+1):]
-                usdUtils.copy(srcFolder + '/' + input.file, folder + '/' + input.file, params.verbose)
-                continue
-
-            if dstFolder and dstFolder != srcFolder and len(dstFolder) < len(input.file) and dstFolder + '/' == input.file[0:(len(dstFolder)+1)]:
-                input.file = input.file[(len(dstFolder)+1):]
-                usdUtils.copy(dstFolder + '/' + input.file, folder + '/' + input.file, params.verbose)
-                continue
-
-            basename = 'textures/' + os.path.basename(input.file)
-            usdUtils.copy(input.file, folder + '/' + basename, params.verbose)
-            input.file = basename
+        if not copied:
+            usdUtils.printWarning(f"Failed to copy texture file: {input.file}")
 
 
-def createStageMetadata(params):
-    if params.creator != '':
+def createStageMetadata(params: USDParameters) -> None:
+    if params.creator:
         params.usdStage.SetMetadataByDictKey("customLayerData", "creator", str(params.creator))
     else:
-        params.usdStage.SetMetadataByDictKey("customLayerData", "creator", "usdzconvert preview " + str(params.version))
-    if params.url != '':
+        params.usdStage.SetMetadataByDictKey(
+            "customLayerData", "creator", f"usdzconvert preview {params.version}"
+        )
+    if params.url:
         params.usdStage.SetMetadataByDictKey("customLayerData", "url", str(params.url))
-    if params.copyright != '':
+    if params.copyright:
         params.usdStage.SetMetadataByDictKey("customLayerData", "copyright", str(params.copyright))
 
 
-def unzip(filePath, outputDir):
+def unzip(filePath: str, outputDir: str) -> str:
     firstFile = ''
-    with zipfile.ZipFile(filePath) as zf:
+    with zipfile.ZipFile(filePath, 'r') as zf:
         zf.extractall(outputDir)
         namelist = zf.namelist()
-        if len(namelist) > 0:
+        if namelist:
             firstFile = namelist[0]
     return firstFile
 
 
-def process(argumentList):
+def process(argumentList: List[str]) -> int:
     parser = Parser()
     parserOut = parser.parse(argumentList)
 
     srcPath = ''
-    if os.path.isfile(parserOut.inFilePath):
-        srcPath = parserOut.inFilePath
-    elif os.path.dirname(parserOut.inFilePath) == '' and parserOut.argumentFile:
-        # try to find input file in argument file folder which is specified by -f in command line
-        argumentFileDir = os.path.dirname(parserOut.argumentFile)
-        if argumentFileDir:
-            os.chdir(argumentFileDir)
-            if os.path.isfile(parserOut.inFilePath):
-                srcPath = parserOut.inFilePath
+    inFile = Path(parserOut.inFilePath)
+    if inFile.is_file():
+        srcPath = str(inFile)
+    elif not inFile.parent and parserOut.argumentFile:
+        argumentFileDir = Path(parserOut.argumentFile).parent
+        os.chdir(argumentFileDir)
+        if inFile.is_file():
+            srcPath = str(inFile)
 
-    if srcPath == '':
-        parser.printErrorUsageAndExit('input file ' + parserOut.inFilePath + ' does not exist.')
+    if not srcPath:
+        parser.printErrorUsageAndExit(f'input file {parserOut.inFilePath} does not exist.')
 
-    fileAndExt = os.path.splitext(srcPath)
-    if len(fileAndExt) != 2:
-        parser.printErrorUsageAndExit('input file ' + parserOut.inFilePath + ' has unsupported file extension.')
+    fileAndExt = inFile.suffix
+    if not fileAndExt:
+        parser.printErrorUsageAndExit(
+            f'input file {parserOut.inFilePath} has unsupported file extension.'
+        )
 
-    print('Input file: ' +  srcPath)
-    srcExt = fileAndExt[1].lower()
+    print(f'Input file: {srcPath}')
+    srcExt = fileAndExt.lower()
 
     dstIsUsdz = False
-    dstPath = parserOut.outFilePath
-    dstExt = ''
-    if dstPath == '':
-        # default destination file is .usdz file in the same folder as source file
-        dstExt = '.usdz'
-        dstPath = fileAndExt[0] + dstExt
+    dstPath = Path(parserOut.outFilePath) if parserOut.outFilePath else Path(inFile.with_suffix('.usdz'))
+    dstExt = dstPath.suffix.lower()
+
+    if not dstPath.suffix:
+        dstPath = dstPath.with_suffix('.usdz')
         dstIsUsdz = True
+    elif dstExt == '.usdz':
+        dstIsUsdz = True
+    elif dstExt not in {'.usd', '.usdc', '.usda'}:
+        parser.printErrorUsageAndExit(
+            f'output file {dstPath} should have .usdz, .usdc, .usda or .usd extension.'
+        )
 
-    dstFileAndExt = os.path.splitext(dstPath)
-    if len(dstFileAndExt) != 2:
-        parser.printErrorUsageAndExit('output file ' + dstPath + ' has unsupported file extension.')
-
-    if not dstIsUsdz:
-        dstExt = dstFileAndExt[1].lower()
-        if dstExt == '.usdz':
-            dstIsUsdz = True
-        elif dstExt != '.usd' and dstExt != '.usdc' and dstExt != '.usda':
-            parser.printErrorUsageAndExit('output file ' + dstPath + ' should have .usdz, .usdc, .usda or .usd extension.')
-
-    tmpFolder = tempfile.mkdtemp('usdzconvert')
+    tmpFolder = tempfile.mkdtemp(prefix='usdzconvert')
 
     legacyModifier = None
     if parserOut.iOS12:
         iOS12Compatible_module = importlib.import_module("iOS12LegacyModifier")
         legacyModifier = iOS12Compatible_module.createLegacyModifier()
-        print('Converting in iOS12 compatiblity mode.')
+        print('Converting in iOS12 compatibility mode.')
 
-    tmpPath = dstFileAndExt[0] + '.usdc' if dstIsUsdz else dstPath
-    tmpBasename = os.path.basename(tmpPath)
-    tmpPath = tmpFolder + '/' + tmpBasename
+    tmpPath = Path(tmpFolder) / (dstPath.with_suffix('.usdc').name if dstIsUsdz else dstPath.name)
 
     if parserOut.verbose and parserOut.copyTextures and dstIsUsdz:
-        usdUtils.printWarning('argument -copytextures works for .usda and .usdc output files only.')
+        usdUtils.printWarning(
+            'argument -copytextures works for .usda and .usdc output files only.'
+        )
 
     openParameters = OpenParameters()
     openParameters.copyTextures = parserOut.copyTextures and not dstIsUsdz
@@ -638,48 +662,60 @@ def process(argumentList):
     srcIsUsd = False
     srcIsUsdz = False
     usdStage = None
-    if '.obj' == srcExt:
-        global usdStageWithObj_module
+
+    if srcExt == '.obj':
         usdStageWithObj_module = importlib.import_module("usdStageWithObj")
-        # this line can be updated with Pixar's backend loader
-        usdStage = usdStageWithObj_module.usdStageWithObj(srcPath, tmpPath, parserOut.useObjMtl, openParameters)
-    elif '.gltf' == srcExt or '.glb' == srcExt:
-        global usdStageWithGlTF_module
+        usdStage = usdStageWithObj_module.usdStageWithObj(
+            srcPath, str(tmpPath), parserOut.useObjMtl, openParameters
+        )
+    elif srcExt in {'.gltf', '.glb'}:
         usdStageWithGlTF_module = importlib.import_module("usdStageWithGlTF")
-        usdStage = usdStageWithGlTF_module.usdStageWithGlTF(srcPath, tmpPath, legacyModifier, openParameters)
-    elif '.fbx' == srcExt:
-        global usdStageWithFbx_module
+        usdStage = usdStageWithGlTF_module.usdStageWithGlTF(
+            srcPath, str(tmpPath), legacyModifier, openParameters
+        )
+    elif srcExt == '.fbx':
         usdStageWithFbx_module = importlib.import_module("usdStageWithFbx")
-        usdStage = usdStageWithFbx_module.usdStageWithFbx(srcPath, tmpPath, legacyModifier, openParameters)
-    elif '.usd' == srcExt or '.usda' == srcExt or '.usdc' == srcExt:
+        usdStage = usdStageWithFbx_module.usdStageWithFbx(
+            srcPath, str(tmpPath), legacyModifier, openParameters
+        )
+    elif srcExt in {'.usd', '.usda', '.usdc'}:
         usdStage = Usd.Stage.Open(srcPath)
         srcIsUsd = True
         openParameters.metersPerUnit = usdStage.GetMetadata("metersPerUnit")
-    elif '.usdz' == srcExt:
+    elif srcExt == '.usdz':
         tmpUSDC = unzip(srcPath, tmpFolder)
-        if tmpUSDC == '':
-            parser.printErrorUsageAndExit("can't open input usdz file " + parserOut.inFilePath)
-        usdStage = Usd.Stage.Open(tmpFolder + '/' + tmpUSDC)
+        if not tmpUSDC:
+            parser.printErrorUsageAndExit(f"can't open input usdz file {parserOut.inFilePath}")
+        usdStage = Usd.Stage.Open(Path(tmpFolder) / tmpUSDC)
         srcIsUsdz = True
-    elif '.abc' == srcExt:
+    elif srcExt == '.abc':
         usdStage = Usd.Stage.Open(srcPath)
         # To update Alembic USD Stage, first save it to temporary .usdc and reload it
-        tmpUSDC = tmpPath + '.usdc'
+        tmpUSDC = str(tmpPath) + '.usdc'
         usdStage.GetRootLayer().Export(tmpUSDC)
         if parserOut.verbose:
-            print('Temporary USDC file: ' + tmpUSDC)
+            print(f'Temporary USDC file: {tmpUSDC}')
         usdStage = Usd.Stage.Open(tmpUSDC)
     else:
-        parser.printErrorUsageAndExit('input file ' + parserOut.inFilePath + ' has unsupported file extension.')
+        parser.printErrorUsageAndExit(
+            f'input file {parserOut.inFilePath} has unsupported file extension.'
+        )
 
-    if usdStage == None:
+    if not usdStage:
         usdUtils.printError("failed to create USD stage.")
         raise usdUtils.ConvertError()
 
-    params = USDParameters(usdStage, parserOut.verbose, parserOut.url, parserOut.creator, parserOut.copyright, tmpPath)
+    params = USDParameters(
+        usdStage,
+        parserOut.verbose,
+        parserOut.url,
+        parserOut.creator,
+        parserOut.copyright,
+        str(tmpPath),
+    )
     createStageMetadata(params)
 
-    if parserOut.loop and (srcIsUsd or srcIsUsdz):
+    if parserOut.loop and srcIsUsd or srcIsUsdz:
         usdStage.SetMetadataByDictKey("customLayerData", "loopStartToEndTimeCode", True)
 
     if parserOut.noloop:
@@ -687,33 +723,33 @@ def process(argumentList):
 
     if parserOut.preferredIblVersion != -1:
         appleDict = usdStage.GetMetadataByDictKey("customLayerData", "Apple")
-        if appleDict is None or type(appleDict) is not dict:
+        if not isinstance(appleDict, dict):
             appleDict = {}
         appleDict["preferredIblVersion"] = parserOut.preferredIblVersion
         usdStage.SetMetadataByDictKey("customLayerData", "Apple", appleDict)
 
-    rootPrim = None
-    if usdStage.HasDefaultPrim():
-        rootPrim = usdStage.GetDefaultPrim()
+    rootPrim = usdStage.GetDefaultPrim() if usdStage.HasDefaultPrim() else None
 
-    if rootPrim != None:
+    if rootPrim:
         params.assetName = rootPrim.GetName()
-        params.materialsPath = '/' + params.assetName + '/Materials'
+        params.materialsPath = f'/{params.assetName}/Materials'
 
-    metersPerUnit = openParameters.metersPerUnit # set by converter
+    metersPerUnit = openParameters.metersPerUnit
     if parserOut.metersPerUnit != 0:
-        metersPerUnit = parserOut.metersPerUnit  # set by user
+        metersPerUnit = parserOut.metersPerUnit
     if metersPerUnit == 0:
         metersPerUnit = 0.01
-    if legacyModifier is None:
+    if not legacyModifier:
         usdStage.SetMetadata("metersPerUnit", metersPerUnit)
     else:
-        if rootPrim != None:
+        if rootPrim:
             usdMetersPerUnit = 0.01
             scale = metersPerUnit / usdMetersPerUnit
             if scale != 1:
                 rootXform = UsdGeom.Xform(rootPrim)
-                rootXform.AddScaleOp(UsdGeom.XformOp.PrecisionFloat, "metersPerUnit").Set(Gf.Vec3f(scale, scale, scale))
+                rootXform.AddScaleOp(UsdGeom.XformOp.PrecisionFloat, "metersPerUnit").Set(
+                    Gf.Vec3f(scale, scale, scale)
+                )
 
     getAllUsdMaterials(params, params.usdStage.GetPseudoRoot())
 
@@ -723,12 +759,13 @@ def process(argumentList):
 
     if srcIsUsd:
         if not (len(parserOut.materials) == 1 and parserOut.materials[0].isEmpty()):
-            usdUtils.printWarning('Material arguments are ignored for .usda/usdc input files.')
+            usdUtils.printWarning(
+                'Material arguments are ignored for .usda/usdc input files.'
+            )
     else:
         # update usd materials with command line material arguments
         for material in parserOut.materials:
-
-            if legacyModifier is not None:
+            if legacyModifier:
                 legacyModifier.opacityAndDiffuseOneTexture(material)
 
             if material.name == '':
@@ -737,7 +774,7 @@ def process(argumentList):
                     addDefaultMaterialToGeometries(params, params.usdStage.GetPseudoRoot())
 
                     copyMaterialTextures(params, material, srcPath, dstPath, tmpFolder)
-                    if legacyModifier is not None:
+                    if legacyModifier:
                         legacyModifier.makeORMTextures(material, tmpFolder, parserOut.verbose)
 
                     for path, usdMaterial in params.usdMaterials.items():
@@ -745,9 +782,11 @@ def process(argumentList):
                         material.updateUsdMaterial(usdMaterial, surfaceShader, params.usdStage)
                 continue
 
-            usdMaterial = findUsdMaterial(params, material.path if material.path else material.name)
+            usdMaterial = findUsdMaterial(
+                params, material.path if material.path else material.name
+            )
 
-            if usdMaterial is not None:
+            if usdMaterial:
                 # if material does exist remove it
                 matPath = str(usdMaterial.GetPrim().GetPath())
                 if matPath in params.usdMaterials:
@@ -756,101 +795,406 @@ def process(argumentList):
                 usdMaterial = None
 
             copyMaterialTextures(params, material, srcPath, dstPath, tmpFolder)
-            if legacyModifier is not None:
+            if legacyModifier:
                 legacyModifier.makeORMTextures(material, tmpFolder, parserOut.verbose)
 
             usdMaterial = material.makeUsdMaterial(params.asset)
-            if usdMaterial is None:
+            if not usdMaterial:
                 continue
 
             surfaceShader = material.getUsdSurfaceShader(usdMaterial, params.usdStage)
             material.updateUsdMaterial(usdMaterial, surfaceShader, params.usdStage)
             params.usdMaterials[str(usdMaterial.GetPrim().GetPath())] = usdMaterial
 
-    usdStage.GetRootLayer().Export(tmpPath)
+    usdStage.GetRootLayer().Export(str(tmpPath))
 
-    # prepare destination folder
-    dstFolder = os.path.dirname(dstPath)
-    if dstFolder != '' and not os.path.isdir(dstFolder):
+    # Prepare destination folder
+    dstFolder = Path(dstPath).parent
+    if dstFolder and not dstFolder.is_dir():
         if parserOut.verbose:
-            print('Creating folder: ' + dstFolder)
-        os.makedirs(dstFolder)
+            print(f'Creating folder: {dstFolder}')
+        dstFolder.mkdir(parents=True, exist_ok=True)
 
     if dstIsUsdz:
-        # construct .usdz archive from the .usdc file
-        UsdUtils.CreateNewARKitUsdzPackage(Sdf.AssetPath(tmpPath), dstPath)
+        # Construct .usdz archive from the .usdc file
+        UsdUtils.CreateNewARKitUsdzPackage(Sdf.AssetPath(str(tmpPath)), str(dstPath))
     else:
-        usdUtils.copy(tmpPath, dstPath)
+        usdUtils.copy(str(tmpPath), str(dstPath))
 
-    # copy textures with usda and usdc
+    # Copy textures with usda and usdc
     if openParameters.copyTextures:
-        copyTexturesFromStageToFolder(params, tmpPath, dstFolder)
+        copyTexturesFromStageToFolder(params, str(tmpPath), str(dstFolder))
 
     rmtree(tmpFolder, ignore_errors=True)
-    print('Output file: ' + dstPath)
+    print(f'Output file: {dstPath}')
 
     arkitCheckerReturn = 0
     if dstIsUsdz:
         # ARKit checker code
-        usdcheckerArgs = [dstPath]
+        usdcheckerArgs = [str(dstPath)]
         if parserOut.verbose:
             usdcheckerArgs.append('-v')
-        scriptFolder = os.path.dirname(os.path.realpath(__file__))
-        spec = importlib.util.spec_from_loader("usdARKitChecker", importlib.machinery.SourceFileLoader("usdARKitChecker", scriptFolder + '/usdARKitChecker'))
+        scriptFolder = Path(__file__).parent
+        spec = importlib.util.spec_from_loader(
+            "usdARKitChecker",
+            scriptFolder / 'usdARKitChecker',
+        )
         usdARKitChecker = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(usdARKitChecker)
         arkitCheckerReturn = usdARKitChecker.main(usdcheckerArgs)
 
-
     return arkitCheckerReturn
 
-def tryProcess(argumentList):
+
+def tryProcess(argumentList: List[str]) -> int:
     try:
         ret = process(argumentList)
     except usdUtils.ConvertError:
         return kConvertErrorReturnValue
     except usdUtils.ConvertExit:
         return 0
-    except:
+    except Exception as e:
+        print(f'Unexpected error: {e}', file=sys.stderr)
         raise
     return ret
 
 
-def convert(fileList, optionDictionary):
-    supportedFormats = ['.obj', '.gltf', '.glb', '.fbx', '.usd', '.usda', '.usdc', '.usdz', '.abc']
-    argumentList = []
+def convert(fileList: List[str], optionDictionary: Dict[str, Any]) -> int:
+    supportedFormats = {'.obj', '.gltf', '.glb', '.fbx', '.usd', '.usda', '.usdc', '.usdz', '.abc'}
+    argumentList: List[str] = []
 
     for file in fileList:
-        fileAndExt = os.path.splitext(file)
-        if len(fileAndExt) == 2:
-            ext = fileAndExt[1].lower()
-            if ext in supportedFormats:
-                # source file to convert
-                argumentList.append(file)
+        filePath = Path(file)
+        if filePath.suffix.lower() in supportedFormats:
+            # source file to convert
+            argumentList.append(str(filePath))
 
-            name = fileAndExt[0]
+        name = filePath.stem
 
-            for inputName in usdUtils.Input.names:
-                if inputName in optionDictionary:
-                    option = optionDictionary[inputName]
+        for inputName in usdUtils.Input.names:
+            if inputName in optionDictionary:
+                option = optionDictionary[inputName]
 
-                    channel = ''
+                channel = ''
 
-                    optionAndChannel = option.split(':')
-                    if len(optionAndChannel) == 2:
-                        option = optionAndChannel[0]
-                        channel = optionAndChannel[1]
+                optionAndChannel = option.split(':')
+                if len(optionAndChannel) == 2:
+                    option, channel = optionAndChannel
 
-                    if len(name) > len(option) and option==name[-len(option):]:
-                        argumentList.append('-' + inputName)
-                        if channel != '':
-                            argumentList.append(channel)
-                        argumentList.append(file)
+                if len(name) > len(option) and name.endswith(option):
+                    argumentList.append(f'-{inputName}')
+                    if channel:
+                        argumentList.append(channel)
+                    argumentList.append(str(filePath))
 
     return tryProcess(argumentList)
 
 
-def main():
+def main() -> int:
+    return tryProcess(sys.argv[1:])
+
+
+if __name__ == '__main__':
+    if usdLibLoaded:
+        errorValue = main()
+    else:
+        errorValue = kConvertErrorReturnValue
+
+    sys.exit(errorValue)
+
+
+def process(argumentList: List[str]) -> int:
+    parser = Parser()
+    parserOut = parser.parse(argumentList)
+
+    srcPath = ''
+    inFile = Path(parserOut.inFilePath)
+    if inFile.is_file():
+        srcPath = str(inFile)
+    elif not inFile.parent and parserOut.argumentFile:
+        argumentFileDir = Path(parserOut.argumentFile).parent
+        os.chdir(argumentFileDir)
+        if inFile.is_file():
+            srcPath = str(inFile)
+
+    if not srcPath:
+        parser.printErrorUsageAndExit(f'input file {parserOut.inFilePath} does not exist.')
+
+    fileAndExt = inFile.suffix
+    if not fileAndExt:
+        parser.printErrorUsageAndExit(
+            f'input file {parserOut.inFilePath} has unsupported file extension.'
+        )
+
+    print(f'Input file: {srcPath}')
+    srcExt = fileAndExt.lower()
+
+    dstIsUsdz = False
+    dstPath = Path(parserOut.outFilePath) if parserOut.outFilePath else Path(inFile.with_suffix('.usdz'))
+    dstExt = dstPath.suffix.lower()
+
+    if not dstPath.suffix:
+        dstPath = dstPath.with_suffix('.usdz')
+        dstIsUsdz = True
+    elif dstExt == '.usdz':
+        dstIsUsdz = True
+    elif dstExt not in {'.usd', '.usdc', '.usda'}:
+        parser.printErrorUsageAndExit(
+            f'output file {dstPath} should have .usdz, .usdc, .usda or .usd extension.'
+        )
+
+    tmpFolder = tempfile.mkdtemp(prefix='usdzconvert')
+
+    legacyModifier = None
+    if parserOut.iOS12:
+        iOS12Compatible_module = importlib.import_module("iOS12LegacyModifier")
+        legacyModifier = iOS12Compatible_module.createLegacyModifier()
+        print('Converting in iOS12 compatibility mode.')
+
+    tmpPath = Path(tmpFolder) / (dstPath.with_suffix('.usdc').name if dstIsUsdz else dstPath.name)
+
+    if parserOut.verbose and parserOut.copyTextures and dstIsUsdz:
+        usdUtils.printWarning(
+            'argument -copytextures works for .usda and .usdc output files only.'
+        )
+
+    openParameters = OpenParameters()
+    openParameters.copyTextures = parserOut.copyTextures and not dstIsUsdz
+    openParameters.searchPaths = parserOut.paths
+    openParameters.verbose = parserOut.verbose
+
+    srcIsUsd = False
+    srcIsUsdz = False
+    usdStage = None
+
+    if srcExt == '.obj':
+        usdStageWithObj_module = importlib.import_module("usdStageWithObj")
+        usdStage = usdStageWithObj_module.usdStageWithObj(
+            srcPath, str(tmpPath), parserOut.useObjMtl, openParameters
+        )
+    elif srcExt in {'.gltf', '.glb'}:
+        usdStageWithGlTF_module = importlib.import_module("usdStageWithGlTF")
+        usdStage = usdStageWithGlTF_module.usdStageWithGlTF(
+            srcPath, str(tmpPath), legacyModifier, openParameters
+        )
+    elif srcExt == '.fbx':
+        usdStageWithFbx_module = importlib.import_module("usdStageWithFbx")
+        usdStage = usdStageWithFbx_module.usdStageWithFbx(
+            srcPath, str(tmpPath), legacyModifier, openParameters
+        )
+    elif srcExt in {'.usd', '.usda', '.usdc'}:
+        usdStage = Usd.Stage.Open(srcPath)
+        srcIsUsd = True
+        openParameters.metersPerUnit = usdStage.GetMetadata("metersPerUnit")
+    elif srcExt == '.usdz':
+        tmpUSDC = unzip(srcPath, tmpFolder)
+        if not tmpUSDC:
+            parser.printErrorUsageAndExit(f"can't open input usdz file {parserOut.inFilePath}")
+        usdStage = Usd.Stage.Open(Path(tmpFolder) / tmpUSDC)
+        srcIsUsdz = True
+    elif srcExt == '.abc':
+        usdStage = Usd.Stage.Open(srcPath)
+        # To update Alembic USD Stage, first save it to temporary .usdc and reload it
+        tmpUSDC = str(tmpPath) + '.usdc'
+        usdStage.GetRootLayer().Export(tmpUSDC)
+        if parserOut.verbose:
+            print(f'Temporary USDC file: {tmpUSDC}')
+        usdStage = Usd.Stage.Open(tmpUSDC)
+    else:
+        parser.printErrorUsageAndExit(
+            f'input file {parserOut.inFilePath} has unsupported file extension.'
+        )
+
+    if not usdStage:
+        usdUtils.printError("failed to create USD stage.")
+        raise usdUtils.ConvertError()
+
+    params = USDParameters(
+        usdStage,
+        parserOut.verbose,
+        parserOut.url,
+        parserOut.creator,
+        parserOut.copyright,
+        str(tmpPath),
+    )
+    createStageMetadata(params)
+
+    if parserOut.loop and srcIsUsd or srcIsUsdz:
+        usdStage.SetMetadataByDictKey("customLayerData", "loopStartToEndTimeCode", True)
+
+    if parserOut.noloop:
+        usdStage.SetMetadataByDictKey("customLayerData", "loopStartToEndTimeCode", False)
+
+    if parserOut.preferredIblVersion != -1:
+        appleDict = usdStage.GetMetadataByDictKey("customLayerData", "Apple")
+        if not isinstance(appleDict, dict):
+            appleDict = {}
+        appleDict["preferredIblVersion"] = parserOut.preferredIblVersion
+        usdStage.SetMetadataByDictKey("customLayerData", "Apple", appleDict)
+
+    rootPrim = usdStage.GetDefaultPrim() if usdStage.HasDefaultPrim() else None
+
+    if rootPrim:
+        params.assetName = rootPrim.GetName()
+        params.materialsPath = f'/{params.assetName}/Materials'
+
+    metersPerUnit = openParameters.metersPerUnit
+    if parserOut.metersPerUnit != 0:
+        metersPerUnit = parserOut.metersPerUnit
+    if metersPerUnit == 0:
+        metersPerUnit = 0.01
+    if not legacyModifier:
+        usdStage.SetMetadata("metersPerUnit", metersPerUnit)
+    else:
+        if rootPrim:
+            usdMetersPerUnit = 0.01
+            scale = metersPerUnit / usdMetersPerUnit
+            if scale != 1:
+                rootXform = UsdGeom.Xform(rootPrim)
+                rootXform.AddScaleOp(UsdGeom.XformOp.PrecisionFloat, "metersPerUnit").Set(
+                    Gf.Vec3f(scale, scale, scale)
+                )
+
+    getAllUsdMaterials(params, params.usdStage.GetPseudoRoot())
+
+    if srcIsUsd and dstIsUsdz:
+        # copy textures to temporary folder while creating usdz
+        copyTexturesFromStageToFolder(params, srcPath, tmpFolder)
+
+    if srcIsUsd:
+        if not (len(parserOut.materials) == 1 and parserOut.materials[0].isEmpty()):
+            usdUtils.printWarning(
+                'Material arguments are ignored for .usda/usdc input files.'
+            )
+    else:
+        # update usd materials with command line material arguments
+        for material in parserOut.materials:
+            if legacyModifier:
+                legacyModifier.opacityAndDiffuseOneTexture(material)
+
+            if material.name == '':
+                # if materials are not specified, then apply default material to all materials
+                if not material.isEmpty():
+                    addDefaultMaterialToGeometries(params, params.usdStage.GetPseudoRoot())
+
+                    copyMaterialTextures(params, material, srcPath, dstPath, tmpFolder)
+                    if legacyModifier:
+                        legacyModifier.makeORMTextures(material, tmpFolder, parserOut.verbose)
+
+                    for path, usdMaterial in params.usdMaterials.items():
+                        surfaceShader = material.getUsdSurfaceShader(usdMaterial, params.usdStage)
+                        material.updateUsdMaterial(usdMaterial, surfaceShader, params.usdStage)
+                continue
+
+            usdMaterial = findUsdMaterial(
+                params, material.path if material.path else material.name
+            )
+
+            if usdMaterial:
+                # if material does exist remove it
+                matPath = str(usdMaterial.GetPrim().GetPath())
+                if matPath in params.usdMaterials:
+                    del params.usdMaterials[matPath]
+                usdStage.RemovePrim(matPath)
+                usdMaterial = None
+
+            copyMaterialTextures(params, material, srcPath, dstPath, tmpFolder)
+            if legacyModifier:
+                legacyModifier.makeORMTextures(material, tmpFolder, parserOut.verbose)
+
+            usdMaterial = material.makeUsdMaterial(params.asset)
+            if not usdMaterial:
+                continue
+
+            surfaceShader = material.getUsdSurfaceShader(usdMaterial, params.usdStage)
+            material.updateUsdMaterial(usdMaterial, surfaceShader, params.usdStage)
+            params.usdMaterials[str(usdMaterial.GetPrim().GetPath())] = usdMaterial
+
+    usdStage.GetRootLayer().Export(str(tmpPath))
+
+    # Prepare destination folder
+    dstFolder = Path(dstPath).parent
+    if dstFolder and not dstFolder.is_dir():
+        if parserOut.verbose:
+            print(f'Creating folder: {dstFolder}')
+        dstFolder.mkdir(parents=True, exist_ok=True)
+
+    if dstIsUsdz:
+        # Construct .usdz archive from the .usdc file
+        UsdUtils.CreateNewARKitUsdzPackage(Sdf.AssetPath(str(tmpPath)), str(dstPath))
+    else:
+        usdUtils.copy(str(tmpPath), str(dstPath))
+
+    # Copy textures with usda and usdc
+    if openParameters.copyTextures:
+        copyTexturesFromStageToFolder(params, str(tmpPath), str(dstFolder))
+
+    rmtree(tmpFolder, ignore_errors=True)
+    print(f'Output file: {dstPath}')
+
+    arkitCheckerReturn = 0
+    if dstIsUsdz:
+        # ARKit checker code
+        usdcheckerArgs = [str(dstPath)]
+        if parserOut.verbose:
+            usdcheckerArgs.append('-v')
+        scriptFolder = Path(__file__).parent
+        spec = importlib.util.spec_from_loader(
+            "usdARKitChecker",
+            scriptFolder / 'usdARKitChecker',
+        )
+        usdARKitChecker = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(usdARKitChecker)
+        arkitCheckerReturn = usdARKitChecker.main(usdcheckerArgs)
+
+    return arkitCheckerReturn
+
+
+def tryProcess(argumentList: List[str]) -> int:
+    try:
+        ret = process(argumentList)
+    except usdUtils.ConvertError:
+        return kConvertErrorReturnValue
+    except usdUtils.ConvertExit:
+        return 0
+    except Exception as e:
+        print(f'Unexpected error: {e}', file=sys.stderr)
+        raise
+    return ret
+
+
+def convert(fileList: List[str], optionDictionary: Dict[str, Any]) -> int:
+    supportedFormats = {'.obj', '.gltf', '.glb', '.fbx', '.usd', '.usda', '.usdc', '.usdz', '.abc'}
+    argumentList: List[str] = []
+
+    for file in fileList:
+        filePath = Path(file)
+        if filePath.suffix.lower() in supportedFormats:
+            # source file to convert
+            argumentList.append(str(filePath))
+
+        name = filePath.stem
+
+        for inputName in usdUtils.Input.names:
+            if inputName in optionDictionary:
+                option = optionDictionary[inputName]
+
+                channel = ''
+
+                optionAndChannel = option.split(':')
+                if len(optionAndChannel) == 2:
+                    option, channel = optionAndChannel
+
+                if len(name) > len(option) and name.endswith(option):
+                    argumentList.append(f'-{inputName}')
+                    if channel:
+                        argumentList.append(channel)
+                    argumentList.append(str(filePath))
+
+    return tryProcess(argumentList)
+
+
+def main() -> int:
     return tryProcess(sys.argv[1:])
 
 

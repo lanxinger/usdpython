@@ -1,4 +1,4 @@
-#!/usr/bin/python
+#!/usr/bin/env python3
 
 import os, struct, sys, time, binascii
 from collections import namedtuple
@@ -153,9 +153,8 @@ def Xform "Object" (
         usda += perAssetTemplate.format(os.path.splitext(os.path.basename(filename))[0], os.path.basename(filename))
     usda += postFixTemplate.format()
 
-    file = open(usdaFilename, "w")
-    file.write(usda)
-    file.close() 
+    with open(usdaFilename, "w") as file:
+        file.write(usda)
     return 
 
 allArgumentsUSDZ = True
@@ -164,7 +163,7 @@ for filename in sys.argv[1:]:
         allArgumentsUSDZ = False
 
 if len(sys.argv) < 3 or not allArgumentsUSDZ:
-    print 'usage:\n    usdzcreateassetlib outputFile.usdz asset1.usdz [asset2.usdz [...]]'
+    print('usage:\n    usdzcreateassetlib outputFile.usdz asset1.usdz [asset2.usdz [...]]')
     sys.exit(0)
 
 fileInfos = []

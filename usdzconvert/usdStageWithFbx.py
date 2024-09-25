@@ -1144,7 +1144,7 @@ class FbxConverter:
             usdSkelBlendShapeBinding.CreateBlendShapesAttr(blendShapes)
             usdSkelBlendShapeBinding.CreateBlendShapeTargetsRel().SetTargets(blendShapeTargets)
 
-            UsdSkel.BindingAPI.Apply(usdMesh.GetPrim())
+            UsdSkel.BindingAPI(usdMesh.GetPrim())
 
             blendShape.addBlendShapeList(blendShapes)
 

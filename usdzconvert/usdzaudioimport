@@ -6,7 +6,7 @@
 import zipfile
 import os, shutil, sys
 import re
-from pxr import *
+from pxr import Usd, UsdMedia, UsdUtils
 
 
 scriptName = "usdzaudioimport"
@@ -266,20 +266,20 @@ parser = Parser()
 parserOut = parser.parse(sys.argv[1:])
 
 if not os.path.exists(parserOut.inFilePath):
-    parser.printErrorUsageAndExit("file '" + parserOut.inFilePath + "' does not exist.")
+    parser.printErrorUsageAndExit(f"file '{parserOut.inFilePath}' does not exist.")
 
 fileAndExt = os.path.splitext(parserOut.inFilePath)
 if len(fileAndExt) != 2:
-    parser.printErrorUsageAndExit('input file ' + parserOut.inFilePath + ' has unsupported file extension.')
+    parser.printErrorUsageAndExit(f'input file {parserOut.inFilePath} has unsupported file extension.')
 
-print('Input file: ' + parserOut.inFilePath)
+print(f'Input file: {parserOut.inFilePath}')
 srcExt = fileAndExt[1].lower()
 if srcExt != '.usdz':
-    parser.printErrorUsageAndExit('input file ' + parserOut.inFilePath + ' is not an usdz file.')
+    parser.printErrorUsageAndExit(f'input file {parserOut.inFilePath} is not an usdz file.')
 
 if parserOut.outFilePath == '':
     parserOut.outFilePath = parserOut.inFilePath
-print('Output file:' + parserOut.outFilePath)
+print(f'Output file: {parserOut.outFilePath}')
 
 
 fileAndExt = os.path.splitext(parserOut.outFilePath)
@@ -291,46 +291,43 @@ tempDir = unzip(parserOut.inFilePath, tmpFolder)
 usds = gatherAllUSDCFiles(tempDir)
 usdFile = usds[0]
 
-usdStage = Usd.Stage.Open(usdFile)
+with Usd.Stage.Open(usdFile) as usdStage:
+    stageStartTimeCode = usdStage.GetStartTimeCode()
+    stageEndTimeCode = usdStage.GetEndTimeCode()
 
-stageStartTimeCode = usdStage.GetStartTimeCode()
-stageEndTimeCode = usdStage.GetEndTimeCode()
+    for audio in parserOut.audios:
+        if parserOut.verbose:
+            print(f'  Add SpatialAudio {audio.path}')
 
+        usdAudio = UsdMedia.SpatialAudio.Define(usdStage, audio.path)
 
-for audio in parserOut.audios:
-    if parserOut.verbose:
-        print('  Add SpatialAudio ' + audio.path)
+        usdAudio.CreateFilePathAttr(audio.file)
 
-    usdAudio = UsdMedia.SpatialAudio.Define(usdStage, audio.path)
+        if audio.auralMode is not None:
+            usdAudio.CreateAuralModeAttr(audio.auralMode)
+        if audio.playbackMode is not None:
+            usdAudio.CreatePlaybackModeAttr(audio.playbackMode)
+        if audio.startTime is not None:
+            usdAudio.CreateStartTimeAttr(audio.startTime)
+            if stageStartTimeCode > audio.startTime:
+                printWarning(f"startTime for audio ({audio.startTime}) is before stage start time ({stageStartTimeCode})")
+        if audio.endTime is not None:
+            usdAudio.CreateEndTimeAttr(audio.endTime)
+            if stageEndTimeCode != 0 and stageEndTimeCode < audio.endTime:
+                printWarning(f"endTime for audio ({audio.endTime}) is later than stage end time ({stageEndTimeCode})")
+        if audio.mediaOffset is not None:
+            usdAudio.CreateMediaOffsetAttr(audio.mediaOffset)
+        if audio.gain is not None:
+            usdAudio.CreateGainAttr(audio.gain)
 
-    usdAudio.CreateFilePathAttr(audio.file)
+    outputDir = os.path.dirname(parserOut.outFilePath)
+    if not os.path.exists(outputDir):
+        os.makedirs(outputDir)
 
-    if audio.auralMode is not None:
-        usdAudio.CreateAuralModeAttr(audio.auralMode)
-    if audio.playbackMode is not None:
-        usdAudio.CreatePlaybackModeAttr(audio.playbackMode)
-    if audio.startTime is not None:
-        usdAudio.CreateStartTimeAttr(audio.startTime)
-        if stageStartTimeCode > audio.startTime:
-            printWarning("startTime for audio (" + str(audio.startTime) + ") is before than stage start time (" + str(stageStartTimeCode) + ")")
-    if audio.endTime is not None:
-        usdAudio.CreateEndTimeAttr(audio.endTime)
-        if stageEndTimeCode != 0 and stageEndTimeCode < audio.endTime:
-            printWarning("endTime for audio (" + str(audio.endTime) + ") is later than stage end time (" + str(stageEndTimeCode) + ")")
-    if audio.mediaOffset is not None:
-        usdAudio.CreateMediaOffsetAttr(audio.mediaOffset)
-    if audio.gain is not None:
-        usdAudio.CreateGainAttr(audio.gain)
-
-
-outputDir = os.path.dirname(parserOut.outFilePath)
-if not os.path.exists(outputDir):
-    os.makedirs(outputDir)
-
-if dstExt == '.usdz':
-    UsdUtils.CreateNewARKitUsdzPackage(usds[0], parserOut.outFilePath)
-else:
-    usdStage.GetRootLayer().Export(parserOut.outFilePath)
+    if dstExt == '.usdz':
+        UsdUtils.CreateNewARKitUsdzPackage(usds[0], parserOut.outFilePath)
+    else:
+        usdStage.GetRootLayer().Export(parserOut.outFilePath)
 
 shutil.rmtree(tmpFolder, ignore_errors=True)
 

@@ -218,6 +218,7 @@ def validateMesh(prim, verbose, errorData):
 	for subset in subsets:
 		if not validateGeomsubset(subset, facesCount, subset.GetPrim().GetName(), startTimeCode, verboseOutput, errorData):
 			return False
+
 	# handle normal attribute that's not authored as primvar
 	normalAttr = mesh.GetNormalsAttr()
 	if normalAttr.HasAuthoredValue():
@@ -226,9 +227,9 @@ def validateMesh(prim, verbose, errorData):
 									 faceVertexIndicesCount, pointsCount, verboseOutput, errorData, None):
 			return False
 
-	prim = UsdGeom.PrimvarsAPI(mesh)
+	primvarsAPI = UsdGeom.PrimvarsAPI(mesh)
 	# Find inherited primvars includes the primvars on prim
-	inheritedPrimvars = prim.FindPrimvarsWithInheritance()
+	inheritedPrimvars = primvarsAPI.GetPrimvars()
 	for primvar in inheritedPrimvars:
 		if not validatePrimvar(meshPath, primvar, facesCount, faceVertexIndicesCount, pointsCount, startTimeCode, verboseOutput, errorData):
 			return False

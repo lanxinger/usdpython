@@ -4,7 +4,7 @@
 import zipfile
 import os, shutil, sys, argparse
 import fnmatch
-from pxr import *
+from pxr import Usd, UsdGeom, UsdShade, Sdf, UsdUtils
 # TODO: remove PIL to replace with binary
 from PIL import Image
 
@@ -55,54 +55,54 @@ def gatherMaterials(stage):
 	return materialPrims
 
 def getPBRShader(materialPrim):
-	material = UsdShade.Material(materialPrim)
-	sourcePrim = UsdShade.ConnectableAPI(materialPrim)
-	try:
-		connection = sourcePrim.GetConnectedSource(sourcePrim.GetOutput("surface"))
-	except:
-		connection = None
-	if connection is None: return None
+    material = UsdShade.Material(materialPrim)
+    sourcePrim = UsdShade.ConnectableAPI(materialPrim)
+    try:
+        connection = UsdShade.ConnectableAPI(sourcePrim).GetConnectedSource(sourcePrim.GetOutput("surface"))
+    except:
+        connection = None
+    if connection is None: return None
 
-	shader = UsdShade.Shader(connection[0])
-	try:
-		shaderType = shader.GetIdAttr().Get()
-	except:
-		return None
-	if shaderType == "UsdPreviewSurface":
-		return shader
-	return None
+    shader = UsdShade.Shader(connection[0])
+    try:
+        shaderType = shader.GetIdAttr().Get()
+    except:
+        return None
+    if shaderType == "UsdPreviewSurface":
+        return shader
+    return None
 
 # return a tuple between diffuse texture and PBR shader
 def gatherDiffuseTexture(materialPrim):
-	pbrShader = getPBRShader(materialPrim)
-	if pbrShader is None:
-		return None
+    pbrShader = getPBRShader(materialPrim)
+    if pbrShader is None:
+        return None
 
-	sourcePrim = UsdShade.ConnectableAPI(pbrShader)
-	try:
-		connection = sourcePrim.GetConnectedSource(sourcePrim.GetInput("diffuseColor"))
-	except:
-		return None
+    sourcePrim = UsdShade.ConnectableAPI(pbrShader)
+    try:
+        connection = UsdShade.ConnectableAPI(sourcePrim).GetConnectedSource(sourcePrim.GetInput("diffuseColor"))
+    except:
+        return None
 
-	if connection is None: return None
-	connectedPrim = connection[0]
-	shader = UsdShade.Shader(connectedPrim)
+    if connection is None: return None
+    connectedPrim = connection[0]
+    shader = UsdShade.Shader(connectedPrim)
 
-	try:
-		shaderType = shader.GetIdAttr().Get()
-	except:
-		return None
-	if shaderType == "UsdUVTexture":
-		try:
-			assetPath = shader.GetInput("file").Get()
-		except:
-			if verboseOutput: print("Warning: unable to find texture in shader " + pbrShader.GetPath().pathString)
-			return None
-		if assetPath.resolvedPath is not "":
-			return (assetPath.resolvedPath, pbrShader.GetPath().pathString)
-		else:
-			print("Warning: unable to find texture" + assetPath.path + " in archive")
-	return None
+    try:
+        shaderType = shader.GetIdAttr().Get()
+    except:
+        return None
+    if shaderType == "UsdUVTexture":
+        try:
+            assetPath = shader.GetInput("file").Get()
+        except:
+            if verboseOutput: print(f"Warning: unable to find texture in shader {pbrShader.GetPath().pathString}")
+            return None
+        if assetPath.resolvedPath != "":
+            return (assetPath.resolvedPath, pbrShader.GetPath().pathString)
+        else:
+            print(f"Warning: unable to find texture {assetPath.path} in archive")
+    return None
 
 # check if pbrShader already has valid opacity connection
 def hasOpacityConnectionOrNonUnitOpacityValue(pbrShader):
@@ -111,7 +111,7 @@ def hasOpacityConnectionOrNonUnitOpacityValue(pbrShader):
 		opacityValue = sourcePrim.GetInput("opacity").Get()
 		if opacityValue != None and opacityValue < 1.0:
 			return True
-		connection = sourcePrim.GetConnectedSource(sourcePrim.GetInput("opacity"))
+		connection = UsdShade.ConnectableAPI(sourcePrim).GetConnectedSource(sourcePrim.GetInput("opacity"))
 	except:
 		return False
 	if connection is not None:
@@ -132,21 +132,21 @@ def textureHasAlpha(texturePath):
 	return False
 
 def updateMaterialsWithTexture(pbrShader):
-	sourcePrim = UsdShade.ConnectableAPI(pbrShader)
-	try:
-		connection = sourcePrim.GetConnectedSource(sourcePrim.GetInput("diffuseColor"))
-	except:
-		return 
-	if connection is not None:
-		shader = UsdShade.Shader(connection[0])
-		if shader:
-			output = shader.CreateOutput("a", Sdf.ValueTypeNames.Float)
-			if sourcePrim.GetInput("opacity").Get() == None:
-				sourcePrim.CreateInput('opacity', Sdf.ValueTypeNames.Float)
-			else:
-				sourcePrim.GetInput("opacity").GetAttr().Clear()
-			UsdShade.ConnectableAPI.ConnectToSource(sourcePrim.GetInput("opacity"), output)
-	return False
+    sourcePrim = UsdShade.ConnectableAPI(pbrShader)
+    try:
+        connection = UsdShade.ConnectableAPI(sourcePrim).GetConnectedSource(sourcePrim.GetInput("diffuseColor"))
+    except:
+        return 
+    if connection is not None:
+        shader = UsdShade.Shader(connection[0])
+        if shader:
+            output = shader.CreateOutput("a", Sdf.ValueTypeNames.Float)
+            if sourcePrim.GetInput("opacity").Get() is None:
+                sourcePrim.CreateInput('opacity', Sdf.ValueTypeNames.Float)
+            else:
+                sourcePrim.GetInput("opacity").GetAttr().Clear()
+            UsdShade.ConnectableAPI(sourcePrim).ConnectToSource(sourcePrim.GetInput("opacity"), output)
+    return False
 
 parser = argparse.ArgumentParser(description='Fix opacity material definition for\
  		 materials implicitly using diffuseColor texture\'s alpha channel as opacity input.')
@@ -167,63 +167,63 @@ if len(args.files) > 1 and os.path.isdir(args.output) == False:
 	sys.exit(1)
 
 for filename in args.files:
-	if verboseOutput:
-		print("Checking file " + filename)
-	if os.path.isabs(filename):
-		cwd = os.getcwd()
-		filename = os.path.join(cwd, filename)
+    if verboseOutput:
+        print(f"Checking file {filename}")
+    if os.path.isabs(filename):
+        cwd = os.getcwd()
+        filename = os.path.join(cwd, filename)
 
-	usds=[]
-	extension = os.path.splitext(filename)[-1].lower()
-	if not os.path.exists(filename):
-		print("Warning: " + filename + " does not exist")
-		continue
+    usds=[]
+    extension = os.path.splitext(filename)[-1].lower()
+    if not os.path.exists(filename):
+        print(f"Warning: {filename} does not exist")
+        continue
 
-	if extension == '.usdz':
-		tempDir = unzip(filename, "/tmp/fixOpacity")
-		usds = gatherAllUSDCFiles(tempDir)
-	elif extension in ['.usd', '.usda', '.usdc']:
-		usds.append(filename)
-	else:
-		if verboseOutput: print("Error: input file " + filename + " is not a USD file")
-		continue
+    if extension == '.usdz':
+        tempDir = unzip(filename, "/tmp/fixOpacity")
+        usds = gatherAllUSDCFiles(tempDir)
+    elif extension in ['.usd', '.usda', '.usdc']:
+        usds.append(filename)
+    else:
+        if verboseOutput: print(f"Error: input file {filename} is not a USD file")
+        continue
 
-	updated = False
-	for usdFile in usds:
-		stage = Usd.Stage.Open(usdFile)
-		materials = gatherMaterials(stage)
-		diffuseTextures = dict()
+    updated = False
+    for usdFile in usds:
+        with Usd.Stage.Open(usdFile) as stage:
+            materials = gatherMaterials(stage)
+            diffuseTextures = dict()
 
-		for material in materials:
-			result = gatherDiffuseTexture(material)
-			if result is None:
-				continue
-			if hasOpacityConnectionOrNonUnitOpacityValue(stage.GetPrimAtPath(result[1])):
-				continue
-			
-			if result[0] in diffuseTextures.keys():
-				diffuseTextures[result[0]].add(result[1])
-			else:
-				diffuseTextures[result[0]] = set([result[1]])
+            for material in materials:
+                result = gatherDiffuseTexture(material)
+                if result is None:
+                    continue
+                if hasOpacityConnectionOrNonUnitOpacityValue(stage.GetPrimAtPath(result[1])):
+                    continue
+                
+                if result[0] in diffuseTextures.keys():
+                    diffuseTextures[result[0]].add(result[1])
+                else:
+                    diffuseTextures[result[0]] = set([result[1]])
 
-		for i, (texturePath, pbrShaders) in enumerate(diffuseTextures.items()):
-			if textureHasAlpha(texturePath):
-				for pbrShader in pbrShaders:
-					updateMaterialsWithTexture(stage.GetPrimAtPath(pbrShader))
-					updated = True
-		stage.Save()
+            for i, (texturePath, pbrShaders) in enumerate(diffuseTextures.items()):
+                if textureHasAlpha(texturePath):
+                    for pbrShader in pbrShaders:
+                        updateMaterialsWithTexture(stage.GetPrimAtPath(pbrShader))
+                        updated = True
+            stage.Save()
 
-	if updated:
-		inputPath, file = os.path.split(filename)
-		if args.output != None:
-			outputPath = os.path.join(args.output, file)
-		else:
-			outputDir = os.path.join(inputPath,'fixOpacityOutput')
-			if not os.path.exists(outputDir):
-				os.makedirs(outputDir)
-			outputPath = os.path.join(outputDir, file)
-		if verboseOutput: print("Export updated usdz asset to " + outputPath)
-		UsdUtils.CreateNewARKitUsdzPackage(usds[0], outputPath)
+    if updated:
+        inputPath, file = os.path.split(filename)
+        if args.output is not None:
+            outputPath = os.path.join(args.output, file)
+        else:
+            outputDir = os.path.join(inputPath,'fixOpacityOutput')
+            if not os.path.exists(outputDir):
+                os.makedirs(outputDir)
+            outputPath = os.path.join(outputDir, file)
+        if verboseOutput: print(f"Export updated usdz asset to {outputPath}")
+        UsdUtils.CreateNewARKitUsdzPackage(usds[0], outputPath)
 
 
 

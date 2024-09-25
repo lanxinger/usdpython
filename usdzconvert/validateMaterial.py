@@ -262,17 +262,17 @@ def validateMaterialProperty(pbrShader, property, verboseOutput, errorData):
     if not validatePropertyType(pbrShaderPath, property, verboseOutput, errorData):
         return False
 
-    connection = UsdShade.ConnectableAPI.GetConnectedSource(property)
+    connection = UsdShade.ConnectableAPI(pbrShader).GetConnectedSource(property)
     if connection == None:
         # constant material property
         return True
     if not validateConnection(property, connection, verboseOutput, errorData):
         return False
 
-    connectable = UsdShade.Shader(connection[0])
+    connectable = UsdShade.ConnectableAPI(connection[0])
     connectablePath = connectable.GetPrim().GetPath().pathString
 
-    shaderId = connectable.GetIdAttr().Get()
+    shaderId = UsdShade.Shader(connectable.GetPrim()).GetIdAttr().Get()
     if shaderId == None:
         errorData.append({
             "code": "WRN_MISSING_SHADER_ID",
@@ -304,14 +304,14 @@ def validateMaterial(materialPrim, verbose, errorData):
     materialPath = material.GetPrim().GetPath().pathString
 
     surface = material.GetSurfaceOutput()
-    connect = UsdShade.ConnectableAPI.GetConnectedSource(surface)
+    connect = UsdShade.ConnectableAPI(material).GetConnectedSource(surface)
     if not validateConnection(surface, connect, verboseOutput, errorData):
         return False
-    if connect is None or not connect[0].IsContainer():
+    if connect is None or not UsdShade.ConnectableAPI(connect[0]).GetPrim().IsA(UsdShade.Shader):
         # Empty material is valid
         return True
 
-    connectable = connect[0]
+    connectable = UsdShade.ConnectableAPI(connect[0])
     primPath = connectable.GetPrim().GetPath().pathString
 
     if not connectable.GetOutput("surface"):
