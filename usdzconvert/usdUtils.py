@@ -199,11 +199,13 @@ class Asset:
     def makeUsdStage(self):
         # debug
         # assert self.usdStage is None, 'Trying to create another usdStage'
+        from pxr import Gf, UsdGeom
         self.usdStage = Usd.Stage.CreateNew(self.usdPath)
         UsdGeom.SetStageUpAxis(self.usdStage, UsdGeom.Tokens.y)
 
         # make default prim
         self.defaultPrim = self.usdStage.DefinePrim(self.getPath(), 'Xform')
+
         self.defaultPrim.SetAssetInfoByKey('name', self.name)
         Usd.ModelAPI(self.defaultPrim).SetKind('component')
         self.usdStage.SetDefaultPrim(self.defaultPrim)
@@ -417,8 +419,6 @@ class Material:
             printWarning('texture file ' + map.file + ' is not .png or .jpg')
 
         assetPath = Sdf.AssetPath(map.file)
-        print(f"DEBUG: [_makeUsdUVTexture] Using map.file for AssetPath: {map.file}")
-        print(f"DEBUG: [_makeUsdUVTexture] Resulting Sdf.AssetPath: {assetPath}")
         textureShader.CreateInput('file', Sdf.ValueTypeNames.Asset).Set(assetPath)
         
         if inputName == InputName.normal:

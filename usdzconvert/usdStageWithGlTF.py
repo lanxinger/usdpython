@@ -271,45 +271,43 @@ def getFloatArrayFromData(data, offset, elementCount):
     return Vt.FloatArray(elements)
 
 
-def convertUVTransformForUSD(translation, scale, rotation):
-    inversePivot = Gf.Matrix4d(1)
-    inversePivot[3] = Gf.Vec4d(0, 1, 0, 1)
+# convertUVTransformForUSD - simplified version
+def convertUVTransformForUSD(translation_gltf, scale_gltf, rotation_rad_gltf):
+    # Keep translation and scale as is (V flip is handled on coords)
+    # We expect translation_gltf and scale_gltf to be 2-element lists/tuples
+    usd_translation = Gf.Vec2f(translation_gltf[0], translation_gltf[1])
+    usd_scale = Gf.Vec2f(scale_gltf[0], scale_gltf[1])
 
-    scaleMatrix = Gf.Matrix4d(Gf.Vec4d(scale[0], scale[1], 1, 1))
-    inverseScaleMatrix = Gf.Matrix4d(Gf.Vec4d(1.0 / scale[0], 1.0 / scale[1], 1, 1))
+    # Convert rotation from radians (glTF) to degrees (USD)
+    # and negate due to V-axis difference
+    usd_rotation_deg = -math.degrees(rotation_rad_gltf)
 
-    rotationMatrix = Gf.Matrix4d(
-        math.cos(rotation), -math.sin(rotation), 0, 0,
-        math.sin(rotation),  math.cos(rotation), 0, 0,
-        0, 0, 1, 0,
-        0, 0, 0, 1)
-    
-    translateMatrix = Gf.Matrix4d(1)
-    translateMatrix.SetTranslate(Gf.Vec3d(translation[0],translation[1],0))
-    uvTransform = scaleMatrix * rotationMatrix * translateMatrix
-    
-    pivot = Gf.Matrix4d(1)
-    pivot[3] = Gf.Vec4d(0, -1, 0, 1)
+    # Return tuple matching MapTransform constructor (expecting lists/tuples for T, S, float for R)
+    return ([usd_translation[0], usd_translation[1]], [usd_scale[0], usd_scale[1]], usd_rotation_deg)
 
-    transform = uvTransform * pivot * inverseScaleMatrix * rotationMatrix.GetTranspose() * inversePivot
 
-    transform[0] = rotationMatrix[0] * scale[0]
-    transform[1] = rotationMatrix[1] * scale[1]
-    transform[2] = rotationMatrix[2]
+def getTransformTranslation(gltfNode):
+    if 'translation' in gltfNode:
+        translation = gltfNode['translation']
+        return Gf.Vec3f(translation[0], translation[1], translation[2])
+    else:
+        return Gf.Vec3f(0, 0, 0) # TODO: support decomposition?
 
-    transform[0] = Gf.Vec4d(transform[0][0], -1.0 * transform[0][1], transform[0][2], transform[0][3])
-    transform[1] = Gf.Vec4d(-1.0 * transform[1][0], transform[1][1], transform[1][2], transform[1][3])
 
-    transform[3] = Gf.Vec4d(transform[3][0], -1.0 * transform[3][1], transform[3][2], transform[3][3])
+def getTransformRotation(gltfNode):
+    if 'rotation' in gltfNode:
+        rotation = gltfNode['rotation']
+        return Gf.Quatf(rotation[3], Gf.Vec3f(rotation[0], rotation[1], rotation[2]))
+    else:
+        return Gf.Quatf(1, Gf.Vec3f(0, 0, 0)) # TODO: support decomposition?
 
-    translation3d = transform.ExtractTranslation()
-    translation[0] = translation3d[0]
-    translation[1] = translation3d[1]
 
-    rotation3D = transform.ExtractRotationMatrix().GetOrthonormalized().ExtractRotation()
-    rotationVec3d = rotation3D.Decompose(Gf.Vec3d(1,0,0), Gf.Vec3d(0,1,0), Gf.Vec3d(0,0,1))
-    rotation = rotationVec3d[2] # degrees
-    return (translation, scale, rotation)
+def getTransformScale(gltfNode):
+    if 'scale' in gltfNode:
+        scale = gltfNode['scale']
+        return Gf.Vec3f(scale[0], scale[1], scale[2])
+    else:
+        return Gf.Vec3f(1, 1, 1) # TODO: support decomposition?
 
 
 class glTFNodeManager(usdUtils.NodeManager):
@@ -370,12 +368,12 @@ class Accessor:
         fmt = glTFComponentType(self.componentType).unpackFormat()
 
         bufferViewIdx = gltfAccessor['bufferView']
-        bufferView = gltfData.gltf['bufferViews'][bufferViewIdx]
+        bufferView = gltfData.gltf['bufferViews'][bufferViewIdx] # REVERTED
         byteLength = bufferView['byteLength']
         byteOffset = getInt(bufferView, 'byteOffset')
         bufferIdx = bufferView['buffer']
 
-        fileContent = gltfData.buffers[bufferIdx]
+        fileContent = gltfData.buffers[bufferIdx] # REVERTED
         offset = accessorByteOffset + byteOffset
 
         self.count = gltfAccessor['count']
@@ -890,7 +888,6 @@ class glTFConverter:
 
     def processSkeletonAnimation(self):
         for gltfAnim in self.gltf['animations'] if 'animations' in self.gltf else []:
-
             skeleton = self.findSkeletonForAnimation(gltfAnim)
             if skeleton is None:
                 continue
@@ -1139,7 +1136,9 @@ class glTFConverter:
                     if count == 0: # no indices
                         count = accessor.count
             elif key == 'NORMAL':
-                normalPrimvar = usdGeom.CreatePrimvar('normals', Sdf.ValueTypeNames.Normal3fArray, UsdGeom.Tokens.vertex)
+                primvarsAPI = UsdGeom.PrimvarsAPI(usdGeom)
+                normalPrimvar = primvarsAPI.CreatePrimvar('normals', Sdf.ValueTypeNames.Normal3fArray, UsdGeom.Tokens.vertex)
+                normalPrimvar.SetInterpolation(UsdGeom.Tokens.vertex) # Explicitly set interpolation
                 normalPrimvar.Set(accessor.data)
             elif key == 'TANGENT':
                 pass
@@ -1157,8 +1156,14 @@ class glTFConverter:
 
                 texCoordSet = key[9:]
                 primvarName = 'st' if texCoordSet == '0' else 'st' + texCoordSet
-                uvs = usdGeom.CreatePrimvar(primvarName, Sdf.ValueTypeNames.TexCoord2fArray, UsdGeom.Tokens.vertex)
-                uvs.Set(newData)
+                primvarsAPI = UsdGeom.PrimvarsAPI(usdGeom)
+                uvs = primvarsAPI.CreatePrimvar(primvarName, Sdf.ValueTypeNames.TexCoord2fArray, UsdGeom.Tokens.faceVarying)
+                if indices is not None:
+                    # Deindex UVs for faceVarying: one UV per index
+                    deindexed_uvs = [newData[int(i)] for i in indices]
+                    uvs.Set(deindexed_uvs)
+                else:
+                    uvs.Set(newData)
             elif key == 'COLOR_0':
                 data = accessor.data
                 if accessor.type == 'VEC4':
@@ -1170,21 +1175,27 @@ class glTFConverter:
                             float(data[el * accessor.components + 1]),
                             float(data[el * accessor.components + 2])))
                     data = newData
-                usdGeom.CreateDisplayColorPrimvar(UsdGeom.Tokens.vertex).Set(data)
+                primvarsAPI = UsdGeom.PrimvarsAPI(usdGeom)
+                colorPrimvar = primvarsAPI.CreatePrimvar(UsdGeom.Tokens.displayColor, Sdf.ValueTypeNames.Color3fArray, UsdGeom.Tokens.vertex)
+                colorPrimvar.SetInterpolation(UsdGeom.Tokens.vertex) # Explicitly set interpolation
+                colorPrimvar.Set(data)
             elif key =='JOINTS_0':
                 if usdSkelBinding != None:
                     newData = [0] * accessor.count * accessor.components
                     for i in range(accessor.count * accessor.components):
-                        newData[i] = skin.remapIndex(accessor.data[i])
-                    usdSkelBinding.CreateJointIndicesPrimvar(False, accessor.components).Set(newData)
+                        newData[i] = int(accessor.data[i])
+                    primvarsAPI = UsdGeom.PrimvarsAPI(usdGeom)
+                    jointIndicesPrimvar = primvarsAPI.CreatePrimvar('skel:jointIndices', Sdf.ValueTypeNames.Int4Array, UsdGeom.Tokens.vertex)
+                    jointIndicesPrimvar.SetElementSize(4)
+                    jointIndicesPrimvar.SetInterpolation(UsdGeom.Tokens.vertex)
+                    jointIndicesPrimvar.Set(newData)
             elif key =='WEIGHTS_0':
                 if usdSkelBinding != None:
-                    # Normalize weights
-                    newData = Vt.FloatArray(list(map(float, accessor.data)))
-                    UsdSkel.NormalizeWeights(newData, accessor.components)
-                    usdSkelBinding.CreateJointWeightsPrimvar(False, accessor.components).Set(newData)
-            else:
-                usdUtils.printWarning("Unsupported primitive attribute: " + key)
+                    primvarsAPI = UsdGeom.PrimvarsAPI(usdGeom)
+                    jointWeightsPrimvar = primvarsAPI.CreatePrimvar('skel:jointWeights', Sdf.ValueTypeNames.Float4Array, UsdGeom.Tokens.vertex)
+                    jointWeightsPrimvar.SetElementSize(4)
+                    jointWeightsPrimvar.SetInterpolation(UsdGeom.Tokens.vertex)
+                    jointWeightsPrimvar.Set(accessor.data)
 
         if (mode == gltfPrimitiveMode.TRIANGLES or 
             mode == gltfPrimitiveMode.TRIANGLE_STRIP or 
@@ -1227,6 +1238,7 @@ class glTFConverter:
         if 'material' in gltfPrimitive:
             materialIdx = gltfPrimitive['material']
             UsdShade.MaterialBindingAPI(usdGeom.GetPrim()).Bind(self.usdMaterials[materialIdx])
+            UsdShade.MaterialBindingAPI.Apply(usdGeom.GetPrim())
 
             gltfMaterial = self.gltf['materials'][materialIdx]
             if 'doubleSided' in gltfMaterial and gltfMaterial['doubleSided'] == True:
@@ -1527,4 +1539,3 @@ def usdStageWithGlTF(gltfPath, usdPath, legacyModifier, openParameters):
 
     converter = glTFConverter(gltfPath, usdPath, legacyModifier, openParameters)
     return converter.makeUsdStage()
-

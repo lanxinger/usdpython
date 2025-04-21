@@ -15,7 +15,6 @@ import shlex
 # Force USD Python path if PYTHONPATH isn't inherited correctly
 usd_python_path = '/usr/local/USD/lib/python'
 if usd_python_path not in sys.path:
-    print(f"DEBUG: Prepending {usd_python_path} to sys.path")
     sys.path.insert(0, usd_python_path)
 
 usdLibLoaded = True
@@ -555,12 +554,8 @@ def copyMaterialTextures(params, material, srcPath, dstPath, folder):
             if not input.file.startswith(texture_rel_path_prefix):
                 basename_for_copy = os.path.join(texture_rel_path_prefix, os.path.basename(input.file))
                 target_path_in_tmp = os.path.join(folder, basename_for_copy)
-                print(f"DEBUG: [copyMaterialTextures] Attempting copy:")
-                print(f"DEBUG:   Source (input.file): {input.file}")
-                print(f"DEBUG:   Destination (in tmp): {target_path_in_tmp}")
                 usdUtils.copy(input.file, target_path_in_tmp, params.verbose)
                 input.file = basename_for_copy
-                print(f"DEBUG: [copyMaterialTextures] Updated input.file to relative path: {input.file}")
 
 
 def createStageMetadata(params):
@@ -630,7 +625,7 @@ def process(argumentList):
             parser.printErrorUsageAndExit('output file ' + dstPath + ' should have .usdz, .usdc, .usda or .usd extension.')
 
     absolute_dstPath = os.path.abspath(dstPath)
-    print(f"Absolute destination path: {absolute_dstPath}") # Log the intended final path
+    print(f"Absolute destination path: {absolute_dstPath}") 
 
     tmpFolder = tempfile.mkdtemp('usdzconvert')
 
@@ -846,31 +841,23 @@ def process(argumentList):
     if dstIsUsdz:
         # Collect payload files (like textures)
         payloadFiles = []
-        print(f"DEBUG: [process] Walking tmpFolder: {tmpFolder} to find payload files...")
         for root, dirs, files in os.walk(tmpFolder):
-            print(f"DEBUG: [process]   Walking in root: {root}")
             for file in files:
                 if file != tmpBasename: # Exclude the main .usdc file itself
                     # Construct path relative to tmpFolder for usdzip
                     relative_path = os.path.relpath(os.path.join(root, file), tmpFolder)
-                    print(f"DEBUG: [process]   Found payload file: {relative_path}")
                     payloadFiles.append(relative_path)
         
-        print(f"DEBUG: [process] Collected payloadFiles: {payloadFiles}")
-
         # Ensure paths use forward slashes for usdzip compatibility
         # Also quote each path individually for safety
         payloadFiles_quoted = [shlex.quote(p.replace(os.sep, '/')) for p in payloadFiles]
-        payloadArgs = ' '.join(payloadFiles_quoted)
+        payloadArgs = ' '.join(payloadFiles_quoted) # Add quoted payload files as separate args
 
         # Construct the command carefully
         usdzCommandList = ['usdzip', shlex.quote(absolute_dstPath), shlex.quote(tmpBasename)]
         usdzCommandList.extend(payloadFiles_quoted) # Add quoted payload files as separate args
         usdzCommandStringForRun = ' '.join(usdzCommandList) # For subprocess.run with shell=True
         usdzCommandStringForPrint = ' '.join(['usdzip', absolute_dstPath, tmpBasename] + payloadFiles) # For clearer printing
-
-        print(f"DEBUG: [process] Constructed usdzip command string: {usdzCommandStringForRun}")
-        print(f"DEBUG: [process] CWD for usdzip: {tmpFolder}")
 
         print(f"Running usdzip: {usdzCommandStringForPrint} in CWD: {tmpFolder}")
         try:
