@@ -264,15 +264,18 @@ class ObjConverter:
         maxUvIndex = max(group.uvIndices)
 
         if minUvIndex >= 0:
+            primvarsAPI = UsdGeom.PrimvarsAPI(usdMesh) # Get PrimvarsAPI
             if group.uvsHaveOwnIndices:
-                uvPrimvar = usdMesh.CreatePrimvar('st', Sdf.ValueTypeNames.TexCoord2fArray, UsdGeom.Tokens.faceVarying)
+                uvPrimvar = primvarsAPI.CreatePrimvar('st', Sdf.ValueTypeNames.TexCoord2fArray, UsdGeom.Tokens.faceVarying)
+                uvPrimvar.SetInterpolation(UsdGeom.Tokens.faceVarying) # Explicitly set interpolation
                 uvPrimvar.Set(self.uvs[minUvIndex:maxUvIndex+1])
                 if minUvIndex == 0:  # optimization
                     uvPrimvar.SetIndices(Vt.IntArray(group.uvIndices))
                 else:
                     uvPrimvar.SetIndices(Vt.IntArray(list(map(lambda x: x - minUvIndex, group.uvIndices))))
             else:
-                uvPrimvar = usdMesh.CreatePrimvar('st', Sdf.ValueTypeNames.TexCoord2fArray, UsdGeom.Tokens.vertex)
+                uvPrimvar = primvarsAPI.CreatePrimvar('st', Sdf.ValueTypeNames.TexCoord2fArray, UsdGeom.Tokens.vertex)
+                uvPrimvar.SetInterpolation(UsdGeom.Tokens.vertex) # Explicitly set interpolation
                 uvPrimvar.Set(self.uvs[minUvIndex:maxUvIndex+1])
 
         # normals
@@ -280,15 +283,19 @@ class ObjConverter:
         maxNormalIndex = max(group.normalIndices)
 
         if minNormalIndex >= 0:
+            try:
+                primvarsAPI # Check if it exists from UV section
+            except NameError:
+                primvarsAPI = UsdGeom.PrimvarsAPI(usdMesh)
             if group.normalsHaveOwnIndices:
-                normalPrimvar = usdMesh.CreatePrimvar('normals', Sdf.ValueTypeNames.Normal3fArray, UsdGeom.Tokens.faceVarying)
+                normalPrimvar = primvarsAPI.CreatePrimvar('normals', Sdf.ValueTypeNames.Normal3fArray, UsdGeom.Tokens.faceVarying)
                 normalPrimvar.Set(self.normals[minNormalIndex:maxNormalIndex+1])
                 if minNormalIndex == 0:  # optimization
                     normalPrimvar.SetIndices(Vt.IntArray(group.normalIndices))
                 else:
                     normalPrimvar.SetIndices(Vt.IntArray(list(map(lambda x: x - minNormalIndex, group.normalIndices))))
             else:
-                normalPrimvar = usdMesh.CreatePrimvar('normals', Sdf.ValueTypeNames.Normal3fArray, UsdGeom.Tokens.vertex)
+                normalPrimvar = primvarsAPI.CreatePrimvar('normals', Sdf.ValueTypeNames.Normal3fArray, UsdGeom.Tokens.vertex)
                 normalPrimvar.Set(self.normals[minNormalIndex:maxNormalIndex+1])
 
         # materials
@@ -313,6 +320,9 @@ class ObjConverter:
                         print('  subset: ' + subsetName + ' faces: ' + str(len(subset.faces)))
                     usdSubset = UsdShade.MaterialBindingAPI.CreateMaterialBindSubset(bindingAPI, subsetName, Vt.IntArray(subset.faces))
                     UsdShade.MaterialBindingAPI(usdSubset).Bind(self.getUsdMaterial(materialIndex))
+
+        # Explicitly apply MaterialBindingAPI to the mesh prim for ARKit compliance
+        UsdShade.MaterialBindingAPI.Apply(usdMesh.GetPrim())
 
 
     def loadMaterialsFromMTLFile(self, filename):

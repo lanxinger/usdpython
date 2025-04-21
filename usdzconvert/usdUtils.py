@@ -360,9 +360,9 @@ class Material:
             uvReader.CreateIdAttr('UsdPrimvarReader_float2')
             if uvInput != None:
                 # token inputs:varname.connect = </cubeMaterial.inputs:frame:stPrimvarName>
-                uvReader.CreateInput('varname', Sdf.ValueTypeNames.Token).ConnectToSource(uvInput)
+                uvReader.CreateInput('varname', Sdf.ValueTypeNames.String).ConnectToSource(uvInput)
             else:
-                uvReader.CreateInput('varname',Sdf.ValueTypeNames.Token).Set(map.texCoordSet)
+                uvReader.CreateInput('varname',Sdf.ValueTypeNames.String).Set(str(map.texCoordSet))
             uvReader.CreateOutput('result', Sdf.ValueTypeNames.Float2)
 
         # texture transform
@@ -388,10 +388,10 @@ class Material:
         textureShader.CreateIdAttr('UsdUVTexture')
 
         if inputName == InputName.normal:
-            # float4 inputs:scale = (2, 2, 2, 2)
-            textureShader.CreateInput('scale', Sdf.ValueTypeNames.Float4).Set(Gf.Vec4f(2, 2, 2, 2))
-            # float4 inputs:bias = (-1, -1, -1, -1)
-            textureShader.CreateInput('bias', Sdf.ValueTypeNames.Float4).Set(Gf.Vec4f(-1, -1, -1, -1))
+            # Temporarily commented out scale/bias for normal map testing
+            # textureShader.CreateInput('scale', Sdf.ValueTypeNames.Float4).Set(Gf.Vec4f(2, 2, 2, 2))
+            # textureShader.CreateInput('bias', Sdf.ValueTypeNames.Float4).Set(Gf.Vec4f(-1, -1, -1, -1))
+            pass # Keep the if block structure
         else:
             if map.scale != None:
                 gfScale = Gf.Vec4f(1)
@@ -411,11 +411,20 @@ class Material:
                 if Gf.Vec4f(1) != gfScale: # skip default value
                     textureShader.CreateInput('scale', Sdf.ValueTypeNames.Float4).Set(gfScale)
 
+        # Check extension
         fileAndExt = os.path.splitext(map.file)
         if len(fileAndExt) == 1 or (fileAndExt[-1] != '.png' and fileAndExt[-1] != '.jpg'):
             printWarning('texture file ' + map.file + ' is not .png or .jpg')
 
-        textureShader.CreateInput('file', Sdf.ValueTypeNames.Asset).Set(map.file)
+        assetPath = Sdf.AssetPath(map.file)
+        print(f"DEBUG: [_makeUsdUVTexture] Using map.file for AssetPath: {map.file}")
+        print(f"DEBUG: [_makeUsdUVTexture] Resulting Sdf.AssetPath: {assetPath}")
+        textureShader.CreateInput('file', Sdf.ValueTypeNames.Asset).Set(assetPath)
+        
+        if inputName == InputName.normal:
+            colorSpaceInput = textureShader.CreateInput('sourceColorSpace', Sdf.ValueTypeNames.Token)
+            colorSpaceInput.Set('raw')
+
         textureShader.CreateInput('st', Sdf.ValueTypeNames.Float2).ConnectToSource(uvReader.GetOutput('result'))
         dataType = Sdf.ValueTypeNames.Float3 if len(channels) == 3 else Sdf.ValueTypeNames.Float
         textureShader.CreateOutput(channels, dataType)
@@ -804,5 +813,3 @@ class ShapeBlending:
         for blendShape in self.blendShapes:
             if blendShape.usdSkelAnim is not None:
                 blendShape.usdSkelAnim.CreateBlendShapesAttr(blendShape.blendShapeList)
-
-

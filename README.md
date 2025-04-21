@@ -11,7 +11,9 @@ This package installs to /Applications/usdpython and contains
 
 After installation you can relocate the files.
 
-IMPORTANT! This version of USD Python tools uses Python 3.7. You can download and install Python 3.7.9 (recommended) from https://www.python.org/downloads/release/python-379/.
+IMPORTANT! This version of USD Python tools includes a precompiled USD library for **Python 3.7.9**. While the scripts have been updated to be compatible with newer Python 3 versions, running them requires either:
+    a) Installing and using Python 3.7.9 (recommended for using the included library: https://www.python.org/downloads/release/python-379/).
+    b) Compiling the USD library yourself against your desired Python 3 version.
 
 The easiest way to start using these command-line tools is to double-click `USD.command` in the Finder. This will open a Terminal window with all necessary environment variables set.
 
@@ -29,9 +31,9 @@ For more information, run
 ### iOS 12 Compatibility
 
 To export .usdz files that play back correctly on iOS 12, use `usdzconvert`'s  `-iOS12` compatibility switch. When run with `-iOS12`, `usdzconvert` will use the Python Imaging Library (PIL) module to do texture conversion. 
-If your Python environment is missing PIL, you can install it by running:
+If your Python environment is missing necessary dependencies like PIL (Pillow) or numpy, you can install them using the provided requirements file:
 
-    pip install pillow
+    python3 -m pip install -r requirements.txt
 
 ### FBX Support
 
@@ -40,7 +42,7 @@ To make FBX bindings available to Python, uncomment the line
 
     export PYTHONPATH=$PYTHONPATH:"/Applications/Autodesk/FBX Python SDK/2020.2.1/lib/Python37_x64"
 
-in `USD.command`, and adjust the path to point to the location of fbx.so (for Python 3.7).
+in `USD.command`, and adjust the path to point to the location of fbx.so (e.g., for Python 3.7, 3.9, etc., matching your environment).
 
 ## usdARKitChecker
 
@@ -69,10 +71,10 @@ To start using USD in Python, set your PATH and PYTHONPATH variables as follows 
     export PATH=$PATH:<PATH_TO_USDPYTHON>/USD
     export PYTHONPATH=$PYTHONPATH:<PATH_TO_USDPYTHON>/USD/lib/python
 
-You should then be able to start using the USD library in Python 3.7:
+You should then be able to start using the USD library in Python 3 (if using a compatible USD build):
 
-    > python3.7
-    Python 3.7.9 (v3.7.9:13c94747c7, Aug 15 2020, 01:31:08)
+    > python3
+    Python 3.9.x ...
     Type "help", "copyright", "credits" or "license" for more information.
     >>> import pxr
     >>> 
@@ -111,5 +113,3 @@ This script does not depend on the USD library, which should make it easy to dep
 usdzaudioimport is a script to attach sound/audio files into existing a usdz file. With this tool users can create SpatialAudio nodes in usdz file and specify parameters for it. For more information, run:
 
     usdzaudioimport -h
-
-

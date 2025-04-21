@@ -1,4 +1,4 @@
-#!/usr/bin/python
+#!/usr/bin/env python3
 
 # Creates a cube mesh and assigns it a PBR material with a diffuse texture
 

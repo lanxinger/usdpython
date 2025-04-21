@@ -1,4 +1,4 @@
-#!/usr/bin/env python3.7
+#!/usr/bin/env python3
 import os.path
 from os import chdir
 import sys
@@ -6,14 +6,22 @@ import importlib
 import tempfile
 from shutil import rmtree
 import zipfile
+import subprocess
+import io
+import contextlib
+import time
+import shlex
+
+# Force USD Python path if PYTHONPATH isn't inherited correctly
+usd_python_path = '/usr/local/USD/lib/python'
+if usd_python_path not in sys.path:
+    print(f"DEBUG: Prepending {usd_python_path} to sys.path")
+    sys.path.insert(0, usd_python_path)
 
 usdLibLoaded = True
 kConvertErrorReturnValue = 2
 
-
-if sys.version_info.major != 3:
-    print('  \033[93mWarning: It is recommended to use Python 3. Current version is ' + str(sys.version_info.major) + '.\033[0m')
-
+# Check if pxr is available
 try:
     from pxr import *
     import usdUtils
@@ -240,7 +248,6 @@ class Parser:
         if channelsCount != 1 and channels != '' or channels == 'rgb':
             usdUtils.printWarning('invalid channel ' + channels + ' for argument ' + argument)
             channels = ''
-
 
         fallback = None
         if self.isNextArgumentsAreFloats(channelsCount):
@@ -544,9 +551,16 @@ def copyMaterialTextures(params, material, srcPath, dstPath, folder):
                 usdUtils.copy(dstFolder + '/' + input.file, folder + '/' + input.file, params.verbose)
                 continue
 
-            basename = 'textures/' + os.path.basename(input.file)
-            usdUtils.copy(input.file, folder + '/' + basename, params.verbose)
-            input.file = basename
+            texture_rel_path_prefix = 'textures/'
+            if not input.file.startswith(texture_rel_path_prefix):
+                basename_for_copy = os.path.join(texture_rel_path_prefix, os.path.basename(input.file))
+                target_path_in_tmp = os.path.join(folder, basename_for_copy)
+                print(f"DEBUG: [copyMaterialTextures] Attempting copy:")
+                print(f"DEBUG:   Source (input.file): {input.file}")
+                print(f"DEBUG:   Destination (in tmp): {target_path_in_tmp}")
+                usdUtils.copy(input.file, target_path_in_tmp, params.verbose)
+                input.file = basename_for_copy
+                print(f"DEBUG: [copyMaterialTextures] Updated input.file to relative path: {input.file}")
 
 
 def createStageMetadata(params):
@@ -615,6 +629,9 @@ def process(argumentList):
         elif dstExt != '.usd' and dstExt != '.usdc' and dstExt != '.usda':
             parser.printErrorUsageAndExit('output file ' + dstPath + ' should have .usdz, .usdc, .usda or .usd extension.')
 
+    absolute_dstPath = os.path.abspath(dstPath)
+    print(f"Absolute destination path: {absolute_dstPath}") # Log the intended final path
+
     tmpFolder = tempfile.mkdtemp('usdzconvert')
 
     legacyModifier = None
@@ -674,7 +691,8 @@ def process(argumentList):
 
     if usdStage == None:
         usdUtils.printError("failed to create USD stage.")
-        raise usdUtils.ConvertError()
+        rmtree(tmpFolder, ignore_errors=True)
+        return 1, None
 
     params = USDParameters(usdStage, parserOut.verbose, parserOut.url, parserOut.creator, parserOut.copyright, tmpPath)
     createStageMetadata(params)
@@ -767,87 +785,195 @@ def process(argumentList):
             material.updateUsdMaterial(usdMaterial, surfaceShader, params.usdStage)
             params.usdMaterials[str(usdMaterial.GetPrim().GetPath())] = usdMaterial
 
+    # Now, ensure materials are correctly bound after potential updates/creations
+    # This might involve rebinding if materials were replaced.
+    # (Add binding logic here if necessary, reviewing how addDefaultMaterialToGeometries and binding work)
+
+    # iOS12 modifications
+    if legacyModifier != None:
+        # Re-fetch materials in case they were modified/added
+        all_materials_on_stage = {} 
+        def collect_materials(prim):
+            if prim.IsA(UsdShade.Material):
+                all_materials_on_stage[str(prim.GetPath())] = UsdShade.Material(prim)
+        collect_materials(params.usdStage.GetPseudoRoot())
+        for child in params.usdStage.GetPseudoRoot().GetAllChildren():
+            collect_materials(child)
+
+        for usdMaterial in all_materials_on_stage.values():
+            materialName = usdUtils.getMaterialName(usdMaterial)
+            material = usdUtils.Material(materialName) # Create temp Material obj
+            # Read existing inputs from the stage material
+            material.inputs = usdUtils.getInputsFromUsdMaterial(usdMaterial, tmpFolder if dstIsUsdz else '')
+
+            # Find the corresponding material from parserOut containing command-line overrides
+            override_material = parserOut.materials[0] # Default to global overrides
+            if len(parserOut.materials) > 1: # Check if specific materials were defined with -m
+                for m in parserOut.materials[1:]: # Skip the default [0]
+                    if m.name == materialName:
+                        override_material = m
+                        break
+
+            # Merge override inputs into the temporary material object
+            for input_name, map_or_value in override_material.inputs.items():
+                material.inputs[input_name] = map_or_value # Overwrite/add command-line input
+
+            # Update the stage material using the merged inputs
+            surfaceShader = usdUtils.getSurfaceShader(usdMaterial)
+            if surfaceShader != None:
+                material.updateUsdMaterial(usdMaterial, surfaceShader, params.usdStage)
+
     usdStage.GetRootLayer().Export(tmpPath)
 
-    # prepare destination folder
-    dstFolder = os.path.dirname(dstPath)
-    if dstFolder != '' and not os.path.isdir(dstFolder):
-        if parserOut.verbose:
-            print('Creating folder: ' + dstFolder)
-        os.makedirs(dstFolder)
+    # If verbose, print the intermediate USDA content for debugging
+    if params.verbose:
+        try:
+            print("\n--- Intermediate USDA --- DUMPING CONTENTS FROM:", tmpPath)
+            intermediate_stage = Usd.Stage.Open(tmpPath)
+            if intermediate_stage:
+                usda_content = intermediate_stage.GetRootLayer().ExportToString()
+                print(usda_content)
+            else:
+                print("Failed to reopen intermediate stage for dumping.")
+            print("--- End Intermediate USDA ---\n")
+        except Exception as e:
+            print(f"Error dumping intermediate USDA: {e}")
+
+    dstIsUsdz = False
+    if len(dstPath) > 5 and dstPath[-5:] == '.usdz':
+        dstIsUsdz = True
 
     if dstIsUsdz:
-        # construct .usdz archive from the .usdc file
-        UsdUtils.CreateNewARKitUsdzPackage(Sdf.AssetPath(tmpPath), dstPath)
+        # Collect payload files (like textures)
+        payloadFiles = []
+        print(f"DEBUG: [process] Walking tmpFolder: {tmpFolder} to find payload files...")
+        for root, dirs, files in os.walk(tmpFolder):
+            print(f"DEBUG: [process]   Walking in root: {root}")
+            for file in files:
+                if file != tmpBasename: # Exclude the main .usdc file itself
+                    # Construct path relative to tmpFolder for usdzip
+                    relative_path = os.path.relpath(os.path.join(root, file), tmpFolder)
+                    print(f"DEBUG: [process]   Found payload file: {relative_path}")
+                    payloadFiles.append(relative_path)
+        
+        print(f"DEBUG: [process] Collected payloadFiles: {payloadFiles}")
+
+        # Ensure paths use forward slashes for usdzip compatibility
+        # Also quote each path individually for safety
+        payloadFiles_quoted = [shlex.quote(p.replace(os.sep, '/')) for p in payloadFiles]
+        payloadArgs = ' '.join(payloadFiles_quoted)
+
+        # Construct the command carefully
+        usdzCommandList = ['usdzip', shlex.quote(absolute_dstPath), shlex.quote(tmpBasename)]
+        usdzCommandList.extend(payloadFiles_quoted) # Add quoted payload files as separate args
+        usdzCommandStringForRun = ' '.join(usdzCommandList) # For subprocess.run with shell=True
+        usdzCommandStringForPrint = ' '.join(['usdzip', absolute_dstPath, tmpBasename] + payloadFiles) # For clearer printing
+
+        print(f"DEBUG: [process] Constructed usdzip command string: {usdzCommandStringForRun}")
+        print(f"DEBUG: [process] CWD for usdzip: {tmpFolder}")
+
+        print(f"Running usdzip: {usdzCommandStringForPrint} in CWD: {tmpFolder}")
+        try:
+            # Ensure tmpFolder exists before using it as CWD
+            if not os.path.isdir(tmpFolder):
+                raise FileNotFoundError(f"Temporary directory {tmpFolder} not found before running usdzip.")
+
+            # Use the string command with shell=True as before, but ensure it includes payloadArgs
+            result = subprocess.run(usdzCommandStringForRun, capture_output=True, text=True, check=True, shell=True, cwd=tmpFolder)
+            if params.verbose:
+                print("usdzip stdout:")
+                print(result.stdout)
+        except subprocess.CalledProcessError as e:
+            print(f"Error: usdzip command failed with exit code {e.returncode}", file=sys.stderr)
+            print(f"usdzip stderr: {e.stderr}", file=sys.stderr)
+            rmtree(tmpFolder, ignore_errors=True)
+            return 1, None # Exit if usdzip fails
+        except FileNotFoundError:
+            print("Error: 'usdzip' command not found. Make sure USD tools are in your PATH.", file=sys.stderr)
+            rmtree(tmpFolder, ignore_errors=True)
+            return 1, None # Exit if usdzip not found
     else:
         usdUtils.copy(tmpPath, dstPath)
 
     # copy textures with usda and usdc
     if openParameters.copyTextures:
-        copyTexturesFromStageToFolder(params, tmpPath, dstFolder)
+        copyTexturesFromStageToFolder(params, tmpPath, os.path.dirname(absolute_dstPath))
 
     rmtree(tmpFolder, ignore_errors=True)
-    print('Output file: ' + dstPath)
+    print('Output file: ' + absolute_dstPath)
+    return 0, absolute_dstPath
 
-    arkitCheckerReturn = 0
-    if dstIsUsdz:
-        # ARKit checker code
-        usdcheckerArgs = [dstPath]
-        if parserOut.verbose:
-            usdcheckerArgs.append('-v')
-        scriptFolder = os.path.dirname(os.path.realpath(__file__))
-        spec = importlib.util.spec_from_loader("usdARKitChecker", importlib.machinery.SourceFileLoader("usdARKitChecker", scriptFolder + '/usdARKitChecker'))
-        usdARKitChecker = importlib.util.module_from_spec(spec)
-        spec.loader.exec_module(usdARKitChecker)
-        arkitCheckerReturn = usdARKitChecker.main(usdcheckerArgs)
-
-
-    return arkitCheckerReturn
 
 def tryProcess(argumentList):
+    status_code = kConvertErrorReturnValue # Default status code
+    dstPath = None
     try:
-        ret = process(argumentList)
+        status_code, dstPath = process(argumentList)
     except usdUtils.ConvertError:
-        return kConvertErrorReturnValue
+        return 1 # Return failure code
     except usdUtils.ConvertExit:
-        return 0
-    except:
-        raise
-    return ret
+        return 0 # Return success code (early exit)
+    except Exception as e:
+        import traceback
+        print("An unexpected error occurred in process:", file=sys.stderr)
+        traceback.print_exc(file=sys.stderr)
+        return 1 # Return failure code
 
+    # If process succeeded and created a .usdz file, run the checker
+    if status_code == 0 and dstPath and dstPath.endswith('.usdz'):
+        print(f"\nRunning ARKit compliance check on {dstPath}...")
+        parser = Parser()
+        parserOut = parser.parse(argumentList) # Re-parse to get verbose flag easily
+        verbose_checker = parserOut.verbose
 
-def convert(fileList, optionDictionary):
-    supportedFormats = ['.obj', '.gltf', '.glb', '.fbx', '.usd', '.usda', '.usdc', '.usdz', '.abc']
-    argumentList = []
+        usdcheckerArgs = [dstPath]
+        if verbose_checker:
+            usdcheckerArgs.append('-v')
 
-    for file in fileList:
-        fileAndExt = os.path.splitext(file)
-        if len(fileAndExt) == 2:
-            ext = fileAndExt[1].lower()
-            if ext in supportedFormats:
-                # source file to convert
-                argumentList.append(file)
+        arkitCheckerReturn = kConvertErrorReturnValue # Default checker return
+        try:
+            scriptFolder = os.path.dirname(os.path.realpath(__file__))
+            spec = importlib.util.spec_from_loader("usdARKitChecker", importlib.machinery.SourceFileLoader("usdARKitChecker", os.path.join(scriptFolder, 'usdARKitChecker')))
+            usdARKitChecker = importlib.util.module_from_spec(spec)
+            spec.loader.exec_module(usdARKitChecker)
 
-            name = fileAndExt[0]
+            # Capture checker output
+            checker_output = io.StringIO()
+            with contextlib.redirect_stdout(checker_output), contextlib.redirect_stderr(checker_output):
+                print('usdARKitChecker:', end=' ')
+                sys.stdout.flush()
+                # Catch potential exceptions during checker main execution specifically
+                try:
+                    arkitCheckerReturn = usdARKitChecker.main(usdcheckerArgs)
+                except Exception as checker_main_exc:
+                    print(f"\nException during usdARKitChecker.main: {checker_main_exc}")
+                    arkitCheckerReturn = 1 # Treat exception during checker as failure
+                    # Add traceback to the captured output
+                    import traceback
+                    traceback.print_exc(file=checker_output)
 
-            for inputName in usdUtils.Input.names:
-                if inputName in optionDictionary:
-                    option = optionDictionary[inputName]
+            if arkitCheckerReturn == 0:
+                print(f'[Pass] ARKit Compliance Check: {dstPath}')
+            else:
+                print(f'[Fail] ARKit Compliance Check: {dstPath}')
+                # Print captured output on failure
+                print("--- usdARKitChecker Output ---", file=sys.stderr)
+                print(checker_output.getvalue(), file=sys.stderr)
+                print("--- End usdARKitChecker Output ---", file=sys.stderr)
 
-                    channel = ''
+            return arkitCheckerReturn # Return the checker's status code
 
-                    optionAndChannel = option.split(':')
-                    if len(optionAndChannel) == 2:
-                        option = optionAndChannel[0]
-                        channel = optionAndChannel[1]
+        except ImportError as e:
+            print(f"Error importing usdARKitChecker: {e}", file=sys.stderr)
+            print("Skipping ARKit compliance check.", file=sys.stderr)
+            return status_code # Return original success code if checker fails to load
+        except Exception as e:
+            print(f"An error occurred during ARKit compliance check: {e}", file=sys.stderr)
+            import traceback
+            traceback.print_exc(file=sys.stderr)
+            return arkitCheckerReturn or 1 # Return checker status or 1 if it failed badly
 
-                    if len(name) > len(option) and option==name[-len(option):]:
-                        argumentList.append('-' + inputName)
-                        if channel != '':
-                            argumentList.append(channel)
-                        argumentList.append(file)
-
-    return tryProcess(argumentList)
+    return status_code
 
 
 def main():
@@ -858,7 +984,6 @@ if __name__ == '__main__':
     if usdLibLoaded:
         errorValue = main()
     else:
-        errorValue = kConvertErrorReturnValue
+        errorValue = 1, None
 
     sys.exit(errorValue)
-

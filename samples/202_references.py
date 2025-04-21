@@ -1,4 +1,4 @@
-#!/usr/bin/python
+#!/usr/bin/env python3
 
 # Creates a scene that references a simple scene graph with overrides
 
@@ -91,4 +91,3 @@ refStage.Save()
 
 # construct .usdz archive from the .usdc file
 UsdUtils.CreateNewARKitUsdzPackage('assets/'+refAssetName+'.usd', 'assets/'+refAssetName+'.usdz')
-

@@ -1,4 +1,4 @@
-#!/usr/bin/python
+#!/usr/bin/env python3
 
 # Builds a scene graph of several objects and sets (animated) translate, rotate, and scale transforms
 

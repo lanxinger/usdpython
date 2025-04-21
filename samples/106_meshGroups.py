@@ -1,4 +1,4 @@
-#!/usr/bin/python
+#!/usr/bin/env python3
 
 # Creates a cube mesh with two mesh groups and assigns each a separate material
 

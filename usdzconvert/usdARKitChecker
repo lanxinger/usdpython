@@ -19,11 +19,24 @@ def validateFile(file, verbose, errorData):
 def runValidators(filename, verboseOutput, errorData):
     checker = UsdUtils.ComplianceChecker(arkit=True, 
             skipARKitRootLayerCheck=False, rootPackageOnly=False, 
-            skipVariants=False, verbose=False)
+            skipVariants=False, verbose=verboseOutput)
 
     checker.CheckCompliance(filename)
     errors = checker.GetErrors()
     failedChecks = checker.GetFailedChecks()
+    
+    # Print detailed errors from the official checker if any exist
+    if errors:
+        print("--- UsdUtils.ComplianceChecker Errors ---", file=sys.stderr)
+        for err in errors:
+            print(f"- {err}", file=sys.stderr)
+        print("--- End ComplianceChecker Errors ---", file=sys.stderr)
+    elif failedChecks:
+        print("--- UsdUtils.ComplianceChecker Failed Checks ---", file=sys.stderr)
+        for check in failedChecks:
+            print(f"- {check}", file=sys.stderr)
+        print("--- End ComplianceChecker Failed Checks ---", file=sys.stderr)
+
     for rule in checker._rules:
         error = rule.__class__.__name__
         failures = rule.GetFailedChecks()
@@ -49,7 +62,7 @@ def main(argumentList, outErrorList=None):
         errorData = []
         runValidators(filename, verboseOutput, errorData)
         if outErrorList is not None:
-        	outErrorList.append({ "file": filename, "errors": errorData })
+            outErrorList.append({ "file": filename, "errors": errorData })
         totalSuccess = totalSuccess and len(errorData) == 0
 
     if totalSuccess:

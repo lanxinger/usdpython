@@ -1,4 +1,4 @@
-#!/usr/bin/python
+#!/usr/bin/env python3
 
 # Creates a cube mesh and assigns it a more complex PBR material with textures for normal, roughness and diffuse channels
 
