@@ -47,7 +47,8 @@ import sys
 import tempfile
 import zipfile
 from functools import partial
-from typing import Optional
+from typing import Optional, List
+import glob
 
 RED = '\033[31m'
 NC = '\033[0m'
@@ -304,8 +305,8 @@ def fix(stage: Usd.Stage,
 
 def main():
     parser = argparse.ArgumentParser(description="Condition USD files to fix common issues")
-    parser.add_argument("file", help="The path to the USD file")
-    parser.add_argument("-o", "--output", help="The path to the output file", required=True)
+    parser.add_argument("input", help="The path to the USD file or directory containing USDZ files")
+    parser.add_argument("-o", "--output", help="The path to the output file or directory", required=True)
     parser.add_argument("-d", "--doublesided", choices=list(Modes), type=Modes, default=Modes.Auto,
                         help="Corrects double sided values on geometry. Auto will set double sided off if no "
                              "opinion is authored. Off will force it off, and skip will not make any change.")
@@ -321,39 +322,71 @@ def main():
                         help="Don't relocate Shader prims that are currently inside other Shader prims")
     parser.add_argument("--ibl-version", type=int, choices=[0,1,2,3], help="The IBL version to set. 0 means use the system default.")
     args = parser.parse_args()
-    source_file = os.path.abspath(args.file)
-    if not os.path.exists(source_file):
-        raise IOError(f"{source_file} does not exist")
+    input_path = os.path.abspath(args.input)
+    if not os.path.exists(input_path):
+        raise IOError(f"{input_path} does not exist")
 
-    source_name, ext = os.path.splitext(args.file)
-    _, out_ext = os.path.splitext(args.output)
+    # Check if input is a directory
+    if os.path.isdir(input_path):
+        # Batch processing mode
+        if not os.path.isdir(args.output):
+            os.makedirs(args.output, exist_ok=True)
+        
+        # Find all USDZ files in the input directory
+        usdz_files = glob.glob(os.path.join(input_path, "*.usdz"))
+        if not usdz_files:
+            print(f"No USDZ files found in {input_path}")
+            return
+        
+        print(f"Processing {len(usdz_files)} USDZ files...")
+        for usdz_file in usdz_files:
+            filename = os.path.basename(usdz_file)
+            output_file = os.path.join(args.output, filename)
+            print(f"Processing {filename}...")
+            
+            try:
+                with ExpandedUSDZ(usdz_file, rezip=True, destination=output_file, cleanup=True) as expanded_usdz:
+                    stage = Usd.Stage.Open(expanded_usdz.default_layer_path)
+                    fix(stage, doublesided=args.doublesided, subdivision=args.subdivision,
+                        fix_material_bindings=not args.dont_fix_material_binding,
+                        fix_skeleton_bindings=not args.dont_fix_skel_binding, 
+                        fix_nested_shaders=not args.dont_fix_nested_shaders,
+                        ibl_version = args.ibl_version)
+                    stage.Save()
+                print(f"✓ Completed {filename}")
+            except Exception as e:
+                print(f"✗ Error processing {filename}: {e}")
+    else:
+        # Single file processing mode (original behavior)
+        _, ext = os.path.splitext(args.input)
+        _, out_ext = os.path.splitext(args.output)
 
-    output_is_usdz = out_ext == ".usdz"
-    if ext in [".usd", ".usda", ".usdc"]:
-        if out_ext not in [".usd", ".usda", ".usdc"]:
-            raise ValueError("Output extension must be .usd, .usda or .usdc")
+        output_is_usdz = out_ext == ".usdz"
+        if ext in [".usd", ".usda", ".usdc"]:
+            if out_ext not in [".usd", ".usda", ".usdc"]:
+                raise ValueError("Output extension must be .usd, .usda or .usdc")
 
-        stage = Usd.Stage.Open(source_file)
-        fix(stage, doublesided=args.doublesided, subdivision=args.subdivision,
-            fix_material_bindings=not args.dont_fix_material_binding,
-            fix_skeleton_bindings=not args.dont_fix_skel_binding,
-            fix_nested_shaders=not args.dont_fix_nested_shaders,
-            ibl_version = args.ibl_version)
-
-        stage.Export(args.output)
-
-    elif ext == ".usdz":
-        if not output_is_usdz:
-            raise ValueError("Output must be a USDZ file when the input is a USDZ file")
-
-        with ExpandedUSDZ(source_file, rezip=True, destination=args.output, cleanup=True) as expanded_usdz:
-            stage = Usd.Stage.Open(expanded_usdz.default_layer_path)
+            stage = Usd.Stage.Open(input_path)
             fix(stage, doublesided=args.doublesided, subdivision=args.subdivision,
                 fix_material_bindings=not args.dont_fix_material_binding,
-                fix_skeleton_bindings=not args.dont_fix_skel_binding, 
+                fix_skeleton_bindings=not args.dont_fix_skel_binding,
                 fix_nested_shaders=not args.dont_fix_nested_shaders,
                 ibl_version = args.ibl_version)
-            stage.Save()
+
+            stage.Export(args.output)
+
+        elif ext == ".usdz":
+            if not output_is_usdz:
+                raise ValueError("Output must be a USDZ file when the input is a USDZ file")
+
+            with ExpandedUSDZ(input_path, rezip=True, destination=args.output, cleanup=True) as expanded_usdz:
+                stage = Usd.Stage.Open(expanded_usdz.default_layer_path)
+                fix(stage, doublesided=args.doublesided, subdivision=args.subdivision,
+                    fix_material_bindings=not args.dont_fix_material_binding,
+                    fix_skeleton_bindings=not args.dont_fix_skel_binding, 
+                    fix_nested_shaders=not args.dont_fix_nested_shaders,
+                    ibl_version = args.ibl_version)
+                stage.Save()
 
 
 if __name__ == "__main__":
