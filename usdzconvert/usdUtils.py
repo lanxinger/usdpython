@@ -390,10 +390,11 @@ class Material:
         textureShader.CreateIdAttr('UsdUVTexture')
 
         if inputName == InputName.normal:
-            # Temporarily commented out scale/bias for normal map testing
-            # textureShader.CreateInput('scale', Sdf.ValueTypeNames.Float4).Set(Gf.Vec4f(2, 2, 2, 2))
-            # textureShader.CreateInput('bias', Sdf.ValueTypeNames.Float4).Set(Gf.Vec4f(-1, -1, -1, -1))
-            pass # Keep the if block structure
+            # ARKit compliance: 8-bit normal maps need proper scale and bias
+            textureShader.CreateInput('scale', Sdf.ValueTypeNames.Float4).Set(Gf.Vec4f(2, 2, 2, 1))
+            textureShader.CreateInput('bias', Sdf.ValueTypeNames.Float4).Set(Gf.Vec4f(-1, -1, -1, 0))
+            # Set sourceColorSpace to 'raw' for normal maps
+            textureShader.CreateInput('sourceColorSpace', Sdf.ValueTypeNames.Token).Set('raw')
         else:
             if map.scale != None:
                 gfScale = Gf.Vec4f(1)
