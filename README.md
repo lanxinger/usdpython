@@ -1,24 +1,85 @@
 # USD Python Tools
 
-This package installs to /Applications/usdpython and contains
-- `usdzconvert`, a Python-based tool to convert from various file formats to usdz
-- `usdARKitChecker`, a Python-based tool for usdz validation
-- precompiled macOS Python modules for Pixar's USD library
-- a set of sample scripts that demonstrate how to write usd files
-- the `fixOpacity` tool
-- `usdzcreateassetlib`, a standalone tool to generate an asset library from multiple assets
-- `usdzaudioimport`, a standalone tool to attach audio files to usdz files
+A comprehensive suite of USD (Universal Scene Description) tools for converting, validating, and manipulating 3D assets for use with AR/VR applications, particularly for Apple platforms.
+
+## Quick Start with the Unified Tool
+
+The easiest way to use all USD operations is through the new **centralized `usd_tool.py`**:
+
+```bash
+# Convert any 3D file to USDZ
+./usd_tool.py convert model.obj model.usdz
+
+# Run a full pipeline (convert → condition → validate)
+./usd_tool.py pipeline model.gltf final.usdz --condition --validate
+
+# Batch convert an entire directory
+./usd_tool.py batch input_dir/ output_dir/ --recursive
+
+# See all available commands
+./usd_tool.py --help
+```
+
+## Package Contents
+
+This package contains:
+- **`usd_tool.py`** - NEW: Unified command-line interface for all USD operations
+- `usdzconvert` - Python-based tool to convert from various file formats to usdz
+- `usdARKitChecker` - Python-based tool for usdz validation
+- `USD-Support-Scripts/` - Apple's official USD conditioning and variant tools
+- Precompiled macOS Python modules for Pixar's USD library
+- Sample scripts that demonstrate how to write USD files
+- `fixOpacity` - Tool to fix transparency issues
+- `usdzcreateassetlib` - Generate asset libraries from multiple assets
+- `usdzaudioimport` - Attach audio files to usdz files
+- **Docker support** - Run all tools in containers without local setup
 
 After installation you can relocate the files.
 
-IMPORTANT! This version of USD Python tools includes a precompiled USD library for **Python 3.7.9**. While the scripts have been updated to be compatible with newer Python 3 versions, running them requires either:
-    a) Installing and using Python 3.7.9 (recommended for using the included library: https://www.python.org/downloads/release/python-379/).
-    b) Compiling the USD library yourself against your desired Python 3 version.
+## Installation & Setup
 
-The easiest way to start using these command-line tools is to double-click `USD.command` in the Finder. This will open a Terminal window with all necessary environment variables set.
+### Python Requirements
+The tools now require Python 3.9+ with the `usd-core` package:
+
+```bash
+# Install dependencies
+python3 -m pip install -r requirements.txt
+```
+
+Note: The legacy precompiled USD library was built for Python 3.7.9, but the modern `usd-core` package from PyPI works with Python 3.9+.
+
+### Quick Setup
+The easiest way to start is to double-click `USD.command` in the Finder, which opens a Terminal with environment variables set.
+
+### Docker Setup (Recommended)
+```bash
+# Build the Docker image
+docker build -t usd-tool:latest .
+
+# Run commands without local setup
+docker run -v $(pwd)/data:/data usd-tool:latest convert model.obj model.usdz
+```
 
 For more details, including demos, see the WWDC 2019 session "Working with USD": 
 https://developer.apple.com/videos/play/wwdc2019/602/
+
+## Unified Tool Commands
+
+The new `usd_tool.py` provides these commands:
+
+| Command | Description | Example |
+|---------|-------------|---------|
+| `convert` | Convert 3D files to USDZ | `./usd_tool.py convert model.obj model.usdz` |
+| `validate` | Check USDZ for AR compatibility | `./usd_tool.py validate model.usdz` |
+| `condition` | Fix compatibility issues | `./usd_tool.py condition input.usdz -o output.usdz` |
+| `variants` | Combine files as variants | `./usd_tool.py variants -m red.usdz blue.usdz -o combined.usdz` |
+| `batch` | Process entire directories | `./usd_tool.py batch input/ output/ --recursive` |
+| `pipeline` | Chain operations | `./usd_tool.py pipeline model.fbx final.usdz --condition --validate` |
+| `opacity` | Fix transparency issues | `./usd_tool.py opacity model.usdz` |
+| `assetlib` | Create asset libraries | `./usd_tool.py assetlib asset1.usdz asset2.usdz -o library.usdz` |
+| `audio` | Import audio | `./usd_tool.py audio model.usdz sound.mp3 -o output.usdz` |
+
+For detailed documentation, see [USD_TOOL_README.md](USD_TOOL_README.md) and [DOCKER_USAGE.md](DOCKER_USAGE.md).
 
 ## usdzconvert (version 0.66)
 
