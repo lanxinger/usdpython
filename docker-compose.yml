@@ -1,0 +1,35 @@
+version: '3.8'
+
+services:
+  usdzconvert:
+    build: .
+    image: usdzconvert:latest
+    volumes:
+      - ./data:/data
+    working_dir: /data
+    stdin_open: true
+    tty: true
+    entrypoint: ["python3", "/app/usdzconvert/usdzconvert"]
+    command: ["-h"]
+
+  # Interactive shell for running multiple commands
+  usd-shell:
+    build: .
+    image: usdzconvert:latest
+    volumes:
+      - ./data:/data
+    working_dir: /data
+    stdin_open: true
+    tty: true
+    entrypoint: ["/bin/bash"]
+
+  # Service for validation
+  usd-validator:
+    build: .
+    image: usdzconvert:latest
+    volumes:
+      - ./data:/data
+    working_dir: /data
+    stdin_open: true
+    tty: true
+    entrypoint: ["python3", "/app/usdzconvert/usdARKitChecker"]
