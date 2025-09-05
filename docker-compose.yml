@@ -1,35 +1,54 @@
 version: '3.8'
 
 services:
-  usdzconvert:
+  # Main unified USD tool
+  usd:
     build: .
-    image: usdzconvert:latest
+    image: usd-tool:latest
     volumes:
       - ./data:/data
     working_dir: /data
     stdin_open: true
     tty: true
-    entrypoint: ["python3", "/app/usdzconvert/usdzconvert"]
-    command: ["-h"]
+    entrypoint: ["python3", "/app/usd_tool.py"]
+
+  # Alias for conversion
+  convert:
+    extends: usd
+    command: ["convert"]
+
+  # Alias for validation
+  validate:
+    extends: usd
+    command: ["validate"]
+
+  # Alias for conditioning
+  condition:
+    extends: usd
+    command: ["condition"]
+
+  # Alias for variants
+  variants:
+    extends: usd
+    command: ["variants"]
+
+  # Batch processing
+  batch:
+    extends: usd
+    command: ["batch"]
+
+  # Full pipeline
+  pipeline:
+    extends: usd
+    command: ["pipeline"]
 
   # Interactive shell for running multiple commands
-  usd-shell:
+  shell:
     build: .
-    image: usdzconvert:latest
+    image: usd-tool:latest
     volumes:
       - ./data:/data
     working_dir: /data
     stdin_open: true
     tty: true
     entrypoint: ["/bin/bash"]
-
-  # Service for validation
-  usd-validator:
-    build: .
-    image: usdzconvert:latest
-    volumes:
-      - ./data:/data
-    working_dir: /data
-    stdin_open: true
-    tty: true
-    entrypoint: ["python3", "/app/usdzconvert/usdARKitChecker"]

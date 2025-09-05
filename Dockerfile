@@ -34,5 +34,11 @@ VOLUME ["/data"]
 # Default working directory for conversions
 WORKDIR /data
 
-# Set the entrypoint to usdzconvert
-ENTRYPOINT ["python3", "/app/usdzconvert/usdzconvert"]
+# Make the unified tool executable
+RUN chmod +x /app/usd_tool.py
+
+# Set the entrypoint to the unified tool
+ENTRYPOINT ["python3", "/app/usd_tool.py"]
+
+# Default command shows help
+CMD ["--help"]
