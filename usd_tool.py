@@ -38,8 +38,16 @@ class USDTool:
         
     def convert(self, args):
         """Convert 3D files to USDZ format."""
-        # Call original usdzconvert
-        cmd = [sys.executable, str(self.usdzconvert_dir / 'usdzconvert')] + args.remaining
+        # Auto-add -useObjMtl for OBJ files to enable automatic texture loading from MTL files
+        cmd = [sys.executable, str(self.usdzconvert_dir / 'usdzconvert')]
+        
+        # Check if input file is OBJ and auto-add -useObjMtl flag
+        if args.remaining and args.remaining[0].lower().endswith('.obj'):
+            # Add -useObjMtl flag if not already present
+            if '-useObjMtl' not in args.remaining:
+                cmd.append('-useObjMtl')
+        
+        cmd.extend(args.remaining)
         return subprocess.call(cmd)
     
     def validate(self, args):
@@ -128,8 +136,13 @@ class USDTool:
             
             print(f"[{i}/{len(files)}] Converting {relative}...")
             
-            cmd = [sys.executable, str(self.usdzconvert_dir / 'usdzconvert'),
-                   str(file), str(output_file)]
+            cmd = [sys.executable, str(self.usdzconvert_dir / 'usdzconvert')]
+            
+            # Auto-add -useObjMtl for OBJ files in batch conversion
+            if file.suffix.lower() == '.obj':
+                cmd.append('-useObjMtl')
+            
+            cmd.extend([str(file), str(output_file)])
             
             # Add iOS12 flag if requested
             if args.ios12:
@@ -162,8 +175,13 @@ class USDTool:
         if input_path.suffix.lower() not in {'.usd', '.usda', '.usdc', '.usdz'}:
             print(f"Step 1: Converting {input_path.name} to USDZ...")
             temp_usdz = input_path.with_suffix('.usdz')
-            cmd = [sys.executable, str(self.usdzconvert_dir / 'usdzconvert'),
-                   str(input_path), str(temp_usdz)]
+            cmd = [sys.executable, str(self.usdzconvert_dir / 'usdzconvert')]
+            
+            # Auto-add -useObjMtl for OBJ files in pipeline
+            if input_path.suffix.lower() == '.obj':
+                cmd.append('-useObjMtl')
+            
+            cmd.extend([str(input_path), str(temp_usdz)])
             if args.ios12:
                 cmd.append('-iOS12')
             result = subprocess.call(cmd)

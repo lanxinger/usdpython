@@ -7,6 +7,7 @@ import time
 import importlib
 
 import usdUtils
+import usdTextureAutoDetect
 
 
 __all__ = ['usdStageWithObj']
@@ -104,6 +105,7 @@ class Group:
 
 class ObjConverter:
     def __init__(self, objPath, usdPath, useMtl, openParameters):
+        self.objPath = objPath  # Store the original OBJ path
         self.usdPath = usdPath
         self.useMtl = useMtl
         self.searchPaths = openParameters.searchPaths
@@ -361,6 +363,30 @@ class ObjConverter:
 
         self.checkLastSubsets()
 
+    
+    def _createMaterialWithAutoDetection(self, material_name: str):
+        """Create a material with auto-detected textures if no MTL was found."""
+        if self.verbose:
+            print(f"  No MTL material found for '{material_name}', trying auto-detection...")
+        
+        try:
+            detector = usdTextureAutoDetect.TextureAutoDetector(self.objPath, self.verbose)
+            material = detector.create_material_with_textures(material_name)
+            
+            if material.inputs:
+                if self.verbose:
+                    print(f"  Auto-detected {len(material.inputs)} texture(s) for '{material_name}'")
+                return material
+            else:
+                if self.verbose:
+                    print(f"  No textures auto-detected for '{material_name}', using default material")
+        except Exception as e:
+            if self.verbose:
+                print(f"  Auto-detection failed for '{material_name}': {e}")
+        
+        # Fallback to default material if auto-detection fails
+        return usdUtils.Material(material_name)
+
 
     def makeUsdStage(self):
         self.asset = usdUtils.Asset(self.usdPath)
@@ -369,9 +395,11 @@ class ObjConverter:
         # create all materials
         for matName in self.materialNames:
             if matName in self.materialsByName:
+                # Material was loaded from MTL file
                 material = self.materialsByName[matName]
             else:
-                material = usdUtils.Material(matName)
+                # No MTL material - try auto-detection
+                material = self._createMaterialWithAutoDetection(matName)
             usdMaterial = material.makeUsdMaterial(self.asset)
             self.usdMaterials.append(usdMaterial)
 

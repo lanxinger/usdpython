@@ -514,9 +514,17 @@ def copyTexturesFromStageToFolder(params, srcPath, folder):
                 continue
             if filename in copiedFiles:
                 continue
-            if srcFolder and filename[0] != '/':
+            if filename[0] == '/':
+                # Absolute path
+                filePath = filename
+            elif os.path.isfile(filename):
+                # Relative path that exists from current directory
+                filePath = filename
+            elif srcFolder and os.path.isfile(srcFolder + '/' + filename):
+                # Relative path from source folder
                 filePath = srcFolder + '/' + filename
             else:
+                # Try just the filename as-is
                 filePath = filename
             usdUtils.copy(filePath, folder + '/' + filename, params.verbose)
             copiedFiles[filename] = filename
@@ -732,7 +740,7 @@ def process(argumentList):
 
     getAllUsdMaterials(params, params.usdStage.GetPseudoRoot())
 
-    if srcIsUsd and dstIsUsdz:
+    if (srcIsUsd or '.obj' == srcExt) and dstIsUsdz:
         # copy textures to temporary folder while creating usdz
         copyTexturesFromStageToFolder(params, srcPath, tmpFolder)
 
