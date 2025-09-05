@@ -135,7 +135,9 @@ class Parser:
 
     def printHelpAndExit(self):
         self.printUsage()
-        with open(os.path.join(sys.path[0], 'help.txt'), 'r') as file:
+        script_dir = os.path.dirname(os.path.realpath(__file__))
+        help_file_path = os.path.join(script_dir, 'help.txt')
+        with open(help_file_path, 'r') as file:
             print (file.read())
             file.close()
         raise usdUtils.ConvertExit()

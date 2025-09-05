@@ -2,5 +2,6 @@
 # Install using: python3 -m pip install -r requirements.txt
 # Recommended to use a virtual environment.
 
-numpy>=1.18.0 # For glTF processing
-Pillow>=8.0.0 # For iOS 12 texture conversion
+usd-core>=24.0.0  # USD Python bindings (works with Python 3.9+)
+numpy>=1.18.0  # For glTF processing
+Pillow>=8.0.0  # For iOS 12 texture conversion
