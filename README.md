@@ -7,7 +7,7 @@ A comprehensive suite of USD (Universal Scene Description) tools for converting,
 The easiest way to use all USD operations is through the new **centralized `usd_tool.py`**:
 
 ```bash
-# Convert any 3D file to USDZ
+# Convert any 3D file to USDZ (automatic texture detection!)
 ./usd_tool.py convert model.obj model.usdz
 
 # Run a full pipeline (convert → condition → validate)
@@ -19,6 +19,21 @@ The easiest way to use all USD operations is through the new **centralized `usd_
 # See all available commands
 ./usd_tool.py --help
 ```
+
+### ✨ **New: Automatic Texture Detection**
+
+No more manual texture assignment! The tool now automatically:
+- **Reads MTL files** for OBJ models (when available)
+- **Auto-detects textures** by filename patterns when no MTL exists
+- **Packages all textures** into USDZ files automatically
+- **Ensures ARKit compliance** for normal maps
+
+### 🎯 **Key Improvements**
+- **Zero Configuration**: OBJ files work out-of-the-box with textures
+- **Smart Fallback**: MTL files take priority, auto-detection as backup  
+- **ARKit Ready**: Normal maps automatically get proper scale/bias values
+- **Pattern Matching**: Recognizes 7+ texture types by common naming conventions
+- **Batch Processing**: Auto-detection works in batch and pipeline modes
 
 ## Package Contents
 
@@ -80,6 +95,28 @@ The new `usd_tool.py` provides these commands:
 | `audio` | Import audio | `./usd_tool.py audio model.usdz sound.mp3 -o output.usdz` |
 
 For detailed documentation, see [USD_TOOL_README.md](USD_TOOL_README.md) and [DOCKER_USAGE.md](DOCKER_USAGE.md).
+
+## Smart OBJ Texture Workflow
+
+For OBJ files, the tool now provides **zero-configuration texture handling**:
+
+### **With MTL Files** (Recommended)
+```bash
+# Automatically reads textures from model.mtl
+./usd_tool.py convert model.obj model.usdz
+```
+
+### **Without MTL Files** (Auto-Detection)
+Place textures in the same folder as your OBJ with these naming patterns:
+- **Diffuse**: `*diffuse*`, `*albedo*`, `*color*`, `*_d.*`
+- **Normal**: `*normal*`, `*bump*`, `*_n.*`
+- **Roughness**: `*roughness*`, `*rough*`, `*_r.*`
+- **Metallic**: `*metallic*`, `*metal*`, `*_m.*`
+- **Occlusion**: `*occlusion*`, `*ao*`, `*_o.*`
+- **Opacity**: `*opacity*`, `*alpha*`, `*_a.*`
+- **Emissive**: `*emissive*`, `*glow*`, `*_e.*`
+
+Examples: `chair_diffuse.jpg`, `MyMaterial_normal.png`, `wood_roughness.tga`
 
 ## usdzconvert (version 0.66)
 
