@@ -94,7 +94,16 @@ The new `usd_tool.py` provides these commands:
 | `assetlib` | Create asset libraries | `./usd_tool.py assetlib asset1.usdz asset2.usdz -o library.usdz` |
 | `audio` | Import audio | `./usd_tool.py audio model.usdz sound.mp3 -o output.usdz` |
 
-For detailed documentation, see [USD_TOOL_README.md](USD_TOOL_README.md) and [DOCKER_USAGE.md](DOCKER_USAGE.md).
+### Command Comparison
+
+| Old Command | New Unified Command |
+|------------|-------------------|
+| `usdzconvert model.obj out.usdz` | `./usd_tool.py convert model.obj out.usdz` |
+| `usdARKitChecker file.usdz` | `./usd_tool.py validate file.usdz` |
+| `python3 usd_conditioner.py in.usdz` | `./usd_tool.py condition in.usdz -o out.usdz` |
+| `fixOpacity model.usdz` | `./usd_tool.py opacity model.usdz` |
+
+For Docker usage, see [DOCKER_USAGE.md](DOCKER_USAGE.md).
 
 ## Smart OBJ Texture Workflow
 
