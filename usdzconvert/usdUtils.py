@@ -231,14 +231,15 @@ class InputName:
     occlusion = 'occlusion'
     clearcoat = 'clearcoat'
     clearcoatRoughness = 'clearcoatRoughness'
+    displacement = 'displacement'
 
 
 
 class Input:
-    names = [InputName.normal, InputName.diffuseColor, InputName.opacity, InputName.emissiveColor, InputName.metallic, InputName.roughness, InputName.occlusion, InputName.clearcoat, InputName.clearcoatRoughness]
-    channels = ['rgb', 'rgb', 'a', 'rgb', 'r', 'r', 'r', 'r', 'r']
-    types = [Sdf.ValueTypeNames.Normal3f, Sdf.ValueTypeNames.Color3f, Sdf.ValueTypeNames.Float, 
-        Sdf.ValueTypeNames.Color3f, Sdf.ValueTypeNames.Float, Sdf.ValueTypeNames.Float, Sdf.ValueTypeNames.Float, Sdf.ValueTypeNames.Float, Sdf.ValueTypeNames.Float]
+    names = [InputName.normal, InputName.diffuseColor, InputName.opacity, InputName.emissiveColor, InputName.metallic, InputName.roughness, InputName.occlusion, InputName.clearcoat, InputName.clearcoatRoughness, InputName.displacement]
+    channels = ['rgb', 'rgb', 'a', 'rgb', 'r', 'r', 'r', 'r', 'r', 'r']
+    types = [Sdf.ValueTypeNames.Normal3f, Sdf.ValueTypeNames.Color3f, Sdf.ValueTypeNames.Float,
+        Sdf.ValueTypeNames.Color3f, Sdf.ValueTypeNames.Float, Sdf.ValueTypeNames.Float, Sdf.ValueTypeNames.Float, Sdf.ValueTypeNames.Float, Sdf.ValueTypeNames.Float, Sdf.ValueTypeNames.Float]
 
 
 
@@ -296,6 +297,11 @@ class Material:
         for inputIdx in range(len(Input.names)):
             self._addMapToUsdMaterial(inputIdx, usdMaterial, surfaceShader, usdStage)
 
+        # Create displacement output if displacement input was processed
+        if InputName.displacement in self.inputs and surfaceShader.GetInput('displacement'):
+            displacementOutput = surfaceShader.CreateOutput('displacement', Sdf.ValueTypeNames.Token)
+            usdMaterial.CreateOutput('displacement', Sdf.ValueTypeNames.Token).ConnectToSource(displacementOutput)
+
 
     def makeUsdMaterial(self, asset):
         matPath = self.path if self.path else asset.getMaterialsPath() + '/' + self.name
@@ -317,6 +323,7 @@ class Material:
         surfaceShader.CreateIdAttr('UsdPreviewSurface')
         surfaceOutput = surfaceShader.CreateOutput('surface', Sdf.ValueTypeNames.Token)
         usdMaterial.CreateOutput('surface', Sdf.ValueTypeNames.Token).ConnectToSource(surfaceOutput)
+
         if self.opacityThreshold is not None:
             surfaceShader.CreateInput('opacityThreshold', Sdf.ValueTypeNames.Float).Set(float(self.opacityThreshold))
         return surfaceShader
@@ -414,10 +421,11 @@ class Material:
                 if Gf.Vec4f(1) != gfScale: # skip default value
                     textureShader.CreateInput('scale', Sdf.ValueTypeNames.Float4).Set(gfScale)
 
-        # Check extension
+        # Check extension - support mixed formats
         fileAndExt = os.path.splitext(map.file)
-        if len(fileAndExt) == 1 or (fileAndExt[-1] != '.png' and fileAndExt[-1] != '.jpg'):
-            printWarning('texture file ' + map.file + ' is not .png or .jpg')
+        supported_extensions = {'.png', '.jpg', '.jpeg', '.avif', '.tga', '.bmp', '.tiff', '.exr', '.hdr'}
+        if len(fileAndExt) == 1 or fileAndExt[-1].lower() not in supported_extensions:
+            printWarning('texture file ' + map.file + ' is not in supported formats: ' + ', '.join(sorted(supported_extensions)))
 
         assetPath = Sdf.AssetPath(map.file)
         textureShader.CreateInput('file', Sdf.ValueTypeNames.Asset).Set(assetPath)

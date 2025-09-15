@@ -130,7 +130,9 @@ class Parser:
                    [-clearcoat              c]\n\
                    [-clearcoat              ch <file> fc]\n\
                    [-clearcoatRoughness     c]\n\
-                   [-clearcoatRoughness     ch <file> fc]\n')
+                   [-clearcoatRoughness     ch <file> fc]\n\
+                   [-displacement           c]\n\
+                   [-displacement           ch <file> fc]\n')
 
 
     def printHelpAndExit(self):

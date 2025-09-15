@@ -501,6 +501,8 @@ class glTFConverter:
         ext = '.png'
         if mimeType == 'image/jpeg':
             ext = '.jpg'
+        elif mimeType == 'image/avif':
+            ext = '.avif'
         filename = 'textures/texgen_' + str(textureIdx) + ext
         
         newfile = open(self.dstFolder + filename, 'wb')
@@ -551,6 +553,9 @@ class glTFConverter:
                 ext = filenameAndExt[1].lower()
                 if '.jpeg' == ext:
                     textureFilename = filenameAndExt[0] + '.jpg'
+                    usdUtils.copy(self.srcFolder + srcTextureFilename, self.dstFolder + textureFilename, self.verbose)
+                elif '.avif' == ext:
+                    # Keep AVIF extension as-is
                     usdUtils.copy(self.srcFolder + srcTextureFilename, self.dstFolder + textureFilename, self.verbose)
                 elif self.srcFolder != self.dstFolder:
                     if self.copyTextures or srcTextureFilename != textureFilename:

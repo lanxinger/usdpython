@@ -85,6 +85,12 @@ optional arguments:
                         ch: (optional) texture color channel (r, g, b or a).
                         fc: (optional) fallback constant in the range [0..1]
 
+  -displacement c       Set displacement to constant c, in the range [0..1]
+  -displacement ch <file> fc
+                        Use <file> as texture for displacement mapping.
+                        ch: (optional) texture color channel (r, g, b or a).
+                        fc: (optional) fallback constant in the range [0..1]
+
 examples:
     usdzconvert chicken.gltf
 

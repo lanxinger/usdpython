@@ -52,7 +52,7 @@ class USDTool:
     
     def validate(self, args):
         """Validate USDZ files for AR compatibility."""
-        # Use wrapper for better error handling
+        # Always use wrapper for better error handling and AVIF support
         wrapper = self.base_dir / 'usdARKitChecker_wrapper.py'
         if wrapper.exists():
             cmd = [sys.executable, str(wrapper)] + args.remaining
@@ -217,7 +217,7 @@ class USDTool:
         # Step 3: Validate
         if args.validate:
             print(f"Step 3: Validating {working_file.name}...")
-            # Use wrapper for better error handling
+            # Always use wrapper for better error handling and AVIF support
             wrapper = self.base_dir / 'usdARKitChecker_wrapper.py'
             if wrapper.exists():
                 cmd = [sys.executable, str(wrapper), str(working_file)]

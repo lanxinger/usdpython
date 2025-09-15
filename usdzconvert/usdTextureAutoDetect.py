@@ -64,7 +64,7 @@ class TextureAutoDetector:
     }
     
     # Supported image formats
-    IMAGE_EXTENSIONS = {'.jpg', '.jpeg', '.png', '.tga', '.bmp', '.tiff', '.exr', '.hdr'}
+    IMAGE_EXTENSIONS = {'.jpg', '.jpeg', '.png', '.tga', '.bmp', '.tiff', '.exr', '.hdr', '.avif'}
     
     def __init__(self, obj_path: str, verbose: bool = False):
         """
@@ -169,7 +169,7 @@ class TextureAutoDetector:
                 break
         
         # Prefer common formats
-        if filename.endswith(('.jpg', '.png')):
+        if filename.endswith(('.jpg', '.png', '.avif')):
             score += 1.0
         
         # Penalize very generic names without the search base
