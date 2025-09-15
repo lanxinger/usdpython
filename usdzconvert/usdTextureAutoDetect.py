@@ -21,6 +21,10 @@ class TextureAutoDetector:
             r'.*color.*',
             r'.*base.*',
             r'.*diff.*',
+            r'.*basecolor.*',
+            r'.*base_color.*',
+            r'.*tex0.*',
+            r'.*tex.*',
             r'.*d\..*',  # _d.jpg, _D.png, etc.
         ],
         'normal': [
@@ -60,7 +64,13 @@ class TextureAutoDetector:
             r'.*emit.*',
             r'.*glow.*',
             r'.*e\..*',  # _e.jpg, _E.png, etc.
-        ]
+        ],
+        'displacement': [
+            r'.*displacement.*',
+            r'.*disp.*',
+            r'.*height.*',
+            r'.*heightmap.*',
+        ],
     }
     
     # Supported image formats
@@ -83,11 +93,34 @@ class TextureAutoDetector:
         self.image_files = self._find_image_files()
         
     def _find_image_files(self) -> List[Path]:
-        """Find all image files in the OBJ's directory."""
-        image_files = []
-        for ext in self.IMAGE_EXTENSIONS:
-            image_files.extend(self.obj_folder.glob(f'*{ext}'))
-            image_files.extend(self.obj_folder.glob(f'*{ext.upper()}'))
+        """Find all image files near the OBJ: current dir and textures/ subfolders."""
+        image_files: List[Path] = []
+        seen = set()
+        candidates = [self.obj_folder]
+        textures_dir = self.obj_folder / 'textures'
+        if textures_dir.exists():
+            candidates.append(textures_dir)
+        # Scan current and textures dir (recursively for textures)
+        for base in candidates:
+            for ext in self.IMAGE_EXTENSIONS:
+                if base == self.obj_folder:
+                    for p in base.glob(f'*{ext}'):
+                        if p not in seen:
+                            seen.add(p)
+                            image_files.append(p)
+                    for p in base.glob(f'*{ext.upper()}'):
+                        if p not in seen:
+                            seen.add(p)
+                            image_files.append(p)
+                else:
+                    for p in base.rglob(f'*{ext}'):
+                        if p not in seen:
+                            seen.add(p)
+                            image_files.append(p)
+                    for p in base.rglob(f'*{ext.upper()}'):
+                        if p not in seen:
+                            seen.add(p)
+                            image_files.append(p)
         return sorted(image_files)
     
     def _match_texture_type(self, filename: str, texture_type: str) -> bool:
@@ -168,9 +201,23 @@ class TextureAutoDetector:
                 score += 5.0 - (i * 0.1)
                 break
         
-        # Prefer common formats
-        if filename.endswith(('.jpg', '.png', '.avif')):
-            score += 1.0
+        # File format preference: generally prefer AVIF, except for displacement where PNG is preferred
+        if texture_type == 'displacement':
+            if filename.endswith('.png'):
+                score += 4.0
+            elif filename.endswith(('.jpg', '.jpeg')):
+                score += 1.0
+            elif filename.endswith('.avif'):
+                score -= 2.0  # discourage AVIF for displacement
+        else:
+            if filename.endswith('.avif'):
+                score += 3.0
+            elif filename.endswith(('.png', '.jpg', '.jpeg')):
+                score += 1.0
+        
+        # Slight preference for our generated compressed variants (not for displacement)
+        if texture_type != 'displacement' and '-compress' in filename:
+            score += 0.5
         
         # Penalize very generic names without the search base
         if not search_base in filename and any(generic in filename for generic in ['texture', 'image', 'default']):
@@ -200,6 +247,7 @@ class TextureAutoDetector:
             'occlusion': usdUtils.InputName.occlusion,
             'opacity': usdUtils.InputName.opacity,
             'emissiveColor': usdUtils.InputName.emissiveColor,
+            'displacement': usdUtils.InputName.displacement,
         }
         
         # Assign detected textures to material inputs

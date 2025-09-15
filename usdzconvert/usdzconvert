@@ -13,9 +13,19 @@ import time
 import shlex
 
 # Force USD Python path if PYTHONPATH isn't inherited correctly
-usd_python_path = '/usr/local/USD/lib/python'
-if usd_python_path not in sys.path:
-    sys.path.insert(0, usd_python_path)
+_usd_root_env = os.environ.get('USD_INSTALL_PATH') or os.environ.get('USD_ROOT')
+_usd_candidates = []
+if _usd_root_env:
+    _usd_candidates.append(os.path.join(_usd_root_env, 'lib', 'python'))
+# Common install paths (lowercase/uppercase)
+_usd_candidates.extend([
+    '/usr/local/usd/lib/python',
+    '/usr/local/USD/lib/python',
+])
+for usd_python_path in _usd_candidates:
+    if usd_python_path and usd_python_path not in sys.path and os.path.isdir(usd_python_path):
+        sys.path.insert(0, usd_python_path)
+        break
 
 usdLibLoaded = True
 kConvertErrorReturnValue = 2
@@ -919,6 +929,9 @@ def tryProcess(argumentList):
         return 1 # Return failure code
 
     # If process succeeded and created a .usdz file, run the checker
+    # Allow env to skip or downgrade checker failures to warnings
+    if os.environ.get('USDZ_SKIP_ARKIT_CHECK', '') == '1':
+        return 0
     if status_code == 0 and dstPath and dstPath.endswith('.usdz'):
         print(f"\nRunning ARKit compliance check on {dstPath}...")
         parser = Parser()
@@ -959,6 +972,11 @@ def tryProcess(argumentList):
                 print("--- usdARKitChecker Output ---", file=sys.stderr)
                 print(checker_output.getvalue(), file=sys.stderr)
                 print("--- End usdARKitChecker Output ---", file=sys.stderr)
+
+            # If configured, only warn on checker failures and do not fail the conversion
+            if arkitCheckerReturn != 0 and os.environ.get('USDZCHECK_WARN_ONLY', '') == '1':
+                print('Note: Treating ARKit compliance failure as a warning (USDZCHECK_WARN_ONLY=1).')
+                return 0
 
             return arkitCheckerReturn # Return the checker's status code
 

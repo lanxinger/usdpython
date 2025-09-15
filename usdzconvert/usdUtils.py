@@ -368,10 +368,10 @@ class Material:
             uvReader = UsdShade.Shader.Define(usdStage, uvReaderPath)
             uvReader.CreateIdAttr('UsdPrimvarReader_float2')
             if uvInput != None:
-                # token inputs:varname.connect = </cubeMaterial.inputs:frame:stPrimvarName>
-                uvReader.CreateInput('varname', Sdf.ValueTypeNames.String).ConnectToSource(uvInput)
+                # varname should be a token per USD/ARKit expectations
+                uvReader.CreateInput('varname', Sdf.ValueTypeNames.Token).ConnectToSource(uvInput)
             else:
-                uvReader.CreateInput('varname',Sdf.ValueTypeNames.String).Set(str(map.texCoordSet))
+                uvReader.CreateInput('varname', Sdf.ValueTypeNames.Token).Set(str(map.texCoordSet))
             uvReader.CreateOutput('result', Sdf.ValueTypeNames.Float2)
 
         # texture transform
@@ -431,6 +431,10 @@ class Material:
         textureShader.CreateInput('file', Sdf.ValueTypeNames.Asset).Set(assetPath)
         
         if inputName == InputName.normal:
+            colorSpaceInput = textureShader.CreateInput('sourceColorSpace', Sdf.ValueTypeNames.Token)
+            colorSpaceInput.Set('raw')
+        elif inputName in (InputName.roughness, InputName.occlusion, InputName.metallic, InputName.displacement):
+            # Non-color data should use raw color space to satisfy ARKit expectations
             colorSpaceInput = textureShader.CreateInput('sourceColorSpace', Sdf.ValueTypeNames.Token)
             colorSpaceInput.Set('raw')
 

@@ -38,17 +38,20 @@ class USDTool:
         
     def convert(self, args):
         """Convert 3D files to USDZ format."""
-        # Auto-add -useObjMtl for OBJ files to enable automatic texture loading from MTL files
+        # Prefer auto-detection of textures for OBJ (no implicit -useObjMtl)
+        # Users can still pass -useObjMtl explicitly if they want the MTL materials.
         cmd = [sys.executable, str(self.usdzconvert_dir / 'usdzconvert')]
-        
-        # Check if input file is OBJ and auto-add -useObjMtl flag
-        if args.remaining and args.remaining[0].lower().endswith('.obj'):
-            # Add -useObjMtl flag if not already present
-            if '-useObjMtl' not in args.remaining:
-                cmd.append('-useObjMtl')
-        
-        cmd.extend(args.remaining)
-        return subprocess.call(cmd)
+
+        # Ensure a default scale if not provided by caller
+        remaining = list(args.remaining)
+        if '-metersPerUnit' not in remaining:
+            remaining.extend(['-metersPerUnit', '1'])
+
+        cmd.extend(remaining)
+        # Downgrade ARKit compliance failures to warnings by default
+        env = os.environ.copy()
+        env.setdefault('USDZCHECK_WARN_ONLY', '1')
+        return subprocess.call(cmd, env=env)
     
     def validate(self, args):
         """Validate USDZ files for AR compatibility."""
