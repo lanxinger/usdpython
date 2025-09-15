@@ -20,19 +20,23 @@ The easiest way to use all USD operations is through the new **centralized `usd_
 ./usd_tool.py --help
 ```
 
-### ✨ **New: Automatic Texture Detection**
+### ✨ **New: Automatic Texture Detection + AVIF Support**
 
 No more manual texture assignment! The tool now automatically:
 - **Reads MTL files** for OBJ models (when available)
 - **Auto-detects textures** by filename patterns when no MTL exists
+- **Supports AVIF textures** for superior compression and smaller files
+- **Mixed format support** - AVIF, PNG, JPEG in the same USDZ
 - **Packages all textures** into USDZ files automatically
-- **Ensures ARKit compliance** for normal maps
+- **Ensures ARKit compliance** with Apple-confirmed AVIF support
 
 ### 🎯 **Key Improvements**
 - **Zero Configuration**: OBJ files work out-of-the-box with textures
-- **Smart Fallback**: MTL files take priority, auto-detection as backup  
-- **ARKit Ready**: Normal maps automatically get proper scale/bias values
-- **Pattern Matching**: Recognizes 7+ texture types by common naming conventions
+- **Smart Fallback**: MTL files take priority, auto-detection as backup
+- **Modern Formats**: AVIF support for 40-80% smaller texture files
+- **Complete Materials**: Full PBR support including displacement mapping
+- **ARKit Ready**: Native AVIF validation with modern iOS compatibility
+- **Pattern Matching**: Recognizes 8+ texture types by common naming conventions
 - **Batch Processing**: Auto-detection works in batch and pipeline modes
 
 ## Package Contents
@@ -124,8 +128,50 @@ Place textures in the same folder as your OBJ with these naming patterns:
 - **Occlusion**: `*occlusion*`, `*ao*`, `*_o.*`
 - **Opacity**: `*opacity*`, `*alpha*`, `*_a.*`
 - **Emissive**: `*emissive*`, `*glow*`, `*_e.*`
+- **Displacement**: `*displacement*`, `*height*`, `*disp*`, `*_disp.*`
 
 Examples: `chair_diffuse.jpg`, `MyMaterial_normal.png`, `wood_roughness.tga`
+
+## AVIF Texture Support & Displacement Mapping
+
+### **🚀 Modern AVIF Textures**
+The tools now support **AVIF format** - the next-generation image format providing:
+- **40-80% smaller files** than JPEG/PNG with better quality
+- **Native ARKit support** on modern iOS devices
+- **Mixed format workflows** - use AVIF alongside PNG/JPEG
+
+```bash
+# Convert with AVIF textures
+./usd_tool.py convert model.obj output.usdz \
+  -diffuseColor albedo.avif \
+  -normal normal.avif \
+  -roughness roughness.avif
+
+# Mixed formats for optimal results
+./usd_tool.py convert model.obj output.usdz \
+  -diffuseColor color.avif \        # AVIF for color (smaller)
+  -displacement height.png \        # PNG for displacement (compatibility)
+  -opacity alpha.png               # PNG for alpha (precision)
+```
+
+### **🎨 Complete PBR Material Support**
+All USD material inputs are now supported, including displacement:
+
+| Input | Description | Recommended Format |
+|-------|-------------|--------------------|
+| `-diffuseColor` | Base color/albedo | AVIF, JPEG |
+| `-normal` | Normal/bump maps | AVIF, PNG |
+| `-roughness` | Surface roughness | AVIF, PNG |
+| `-metallic` | Metallic values | AVIF, PNG |
+| `-occlusion` | Ambient occlusion | AVIF, PNG |
+| `-displacement` | Height/displacement | PNG (best compatibility) |
+| `-opacity` | Transparency/alpha | PNG (precision) |
+| `-emissiveColor` | Glow/emission | AVIF, PNG |
+| `-clearcoat` | Clear coat layer | AVIF, PNG |
+| `-clearcoatRoughness` | Clear coat roughness | AVIF, PNG |
+
+### **Automatic Format Recognition**
+Supported image formats: **AVIF**, PNG, JPEG, TGA, BMP, TIFF, EXR, HDR
 
 ## usdzconvert (version 0.66)
 
@@ -154,7 +200,7 @@ in `USD.command`, and adjust the path to point to the location of fbx.so (e.g., 
 ## usdARKitChecker
 
 `usdARKitChecker` is a Python script that validates existing usdz files. It is automatically run by `usdzconvert`, but can also be used as a stand-alone tool to validate files from other sources.
-For more information, run 
+For more information, run
 
     usdARKitChecker -h
 
@@ -162,6 +208,7 @@ Currently `usdARKitChecker` consists of three parts:
 - validation through Pixar's `usdchecker`
 - mesh attribute validation
 - UsdPreviewSurface material validation
+- **NEW**: Native AVIF format support with Apple-confirmed compatibility
 
 ## Precompiled macOS Python Modules for Pixar's USD Library (Version 19.11)
 
