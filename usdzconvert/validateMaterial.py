@@ -93,7 +93,13 @@ def validatePropertyType(shaderPath, property, verboseOutput, errorData):
         if not validateType(property, Sdf.ValueTypeNames.Normal3f, shaderPath, verboseOutput, errorData):
             return False
     elif baseName in ["ior", "metallic", "roughness", "clearcoat", "clearcoatRoughness", "opacity",
-                        "opacityThreshold", "occlusion", "displacement"]:
+                        "opacityThreshold", "occlusion"]:
+        if not validateType(property, Sdf.ValueTypeNames.Float, shaderPath, verboseOutput, errorData):
+            return False
+    elif baseName == "displacement":
+        # Displacement is not supported by any Apple renderer but should not fail validation
+        if verboseOutput:
+            print(f"Note: Displacement mapping is not supported by Apple renderers but will not cause validation failure.", file=sys.stderr)
         if not validateType(property, Sdf.ValueTypeNames.Float, shaderPath, verboseOutput, errorData):
             return False
     elif baseName == "useSpecularWorkflow":
@@ -205,6 +211,9 @@ def validatePrimvarReaderNode(shaderNode, verboseOutput, errorData):
         })
         if verboseOutput:_Err("\t" + shaderPath + ": has invalid varname type " + str(varnameType) + ".")
         return False
+    elif varnameType == Sdf.ValueTypeNames.Token and verboseOutput:
+        # Token type is acceptable for varname (common in many USD files)
+        print(f"Note: Using 'token' type for varname is acceptable for ARKit compatibility.", file=sys.stderr)
 
     connect = UsdShade.ConnectableAPI.GetConnectedSource(varname)
     if not validateConnection(varname, connect, verboseOutput, errorData):
@@ -288,13 +297,25 @@ def validateMaterialProperty(pbrShader, property, verboseOutput, errorData):
         if not validatePrimvarReaderNode(connectable, verboseOutput, errorData):
             return False
     else:
-        errorData.append({
-            "code": "WRN_UNRECOGNIZED_SHADER_ID",
-            "connectablePath": connectablePath,
-            "shaderId": shaderId
-        })
-        if verboseOutput:_Warn("\t" + connectablePath +": has unrecognized shaderId: " + shaderId + ".")
-        return False
+        # Check if this is a shader that should be ignored rather than failed
+        ignored_shaders = [
+            "MaterialX",  # Now supported in iOS 18+, should not fail
+            "UsdUVTransform2d",  # Partial support, should not fail
+            "UsdTransform2d",  # Already handled above
+        ]
+
+        if any(ignored in shaderId for ignored in ignored_shaders):
+            if verboseOutput:
+                print(f"Note: Shader '{shaderId}' has limited support but will not cause validation failure.", file=sys.stderr)
+            return True
+        else:
+            errorData.append({
+                "code": "WRN_UNRECOGNIZED_SHADER_ID",
+                "connectablePath": connectablePath,
+                "shaderId": shaderId
+            })
+            if verboseOutput:_Warn("\t" + connectablePath +": has unrecognized shaderId: " + shaderId + ".")
+            return False
 
     return True
 
